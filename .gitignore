@@ -1,0 +1,35 @@
+# Binaries
+/bench
+/bin/
+*.exe
+*.test
+*.out
+
+# Go
+/vendor/
+
+# Node
+node_modules/
+dist/
+build/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Benchmark results
+/results/raw/
+/results/summaries/
+/telemetry/
+
+# Environment
+.env
+.env.local
+
+# Assistant config
+.commandcode/
+
+# OS
+.DS_Store
+Thumbs.db

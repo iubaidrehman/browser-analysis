@@ -1,0 +1,1528 @@
+You are the principal software engineer responsible for building a research-grade
+browser concurrency and automation performance benchmarking laboratory.
+
+PROJECT NAME:
+Browser Concurrency Research Lab (BCRL)
+
+OBJECTIVE:
+Build a controlled, reproducible experimental system that measures the performance
+characteristics of different browser automation architectures at increasing levels
+of concurrency.
+
+The purpose is academic/engineering research.
+
+DO NOT integrate with Walmart, retail websites, third-party purchasing systems,
+anti-bot systems, CAPTCHA solving, queue bypassing, fingerprint spoofing,
+residential/mobile proxies, or any mechanism intended to evade third-party
+security controls.
+
+The entire benchmark must operate against a locally hosted synthetic web
+application that we control.
+
+============================================================
+1. CORE RESEARCH QUESTION
+============================================================
+
+Determine empirically:
+
+"How do different browser execution architectures compare in startup latency,
+memory consumption, CPU consumption, concurrency, throughput, P95/P99 latency,
+failure rate, and scalability?"
+
+We specifically want to understand the difference between:
+
+A. One visible/headed Chromium process per worker
+B. One headless Chromium process per worker
+C. One persistent Chromium browser with many browser contexts
+D. One persistent Chromium browser controlled through CDP
+E. HTTP-only workers
+F. Hybrid HTTP + browser workers
+G. Optional CEF/off-screen Chromium
+H. Different controller runtimes where useful
+
+Do NOT assume any architecture is faster.
+
+The benchmark must produce empirical evidence.
+
+============================================================
+2. IMPORTANT TERMINOLOGY
+============================================================
+
+The system MUST distinguish these concepts:
+
+Logical Task:
+    A unit of application work.
+
+Worker:
+    A runtime worker responsible for executing logical tasks.
+
+Browser Process:
+    An operating-system Chromium process tree.
+
+Browser Context:
+    An isolated browser environment inside Chromium.
+
+Page:
+    A browser page/tab.
+
+HTTP Worker:
+    A lightweight worker executing HTTP operations without a browser.
+
+Browser Session:
+    Persistent browser state associated with a logical task.
+
+CDP Connection:
+    A control connection to an already-running Chromium instance.
+
+Do not use "task", "browser", "session", "context", and "page"
+interchangeably.
+
+Every benchmark result must make this distinction explicit.
+
+============================================================
+3. RECOMMENDED TECHNOLOGY
+============================================================
+
+PRIMARY CONTROLLER:
+
+Go.
+
+Reasons:
+
+- goroutines
+- channels
+- efficient concurrency
+- low runtime overhead
+- easy deployment
+- good process management
+- excellent HTTP performance
+
+BROWSER AUTOMATION:
+
+Playwright + Chromium.
+
+Use a pinned Playwright/browser version.
+
+TARGET APPLICATION:
+
+React + TypeScript + Vite
+
+BACKEND:
+
+Go
+
+DATABASE:
+
+SQLite initially.
+
+PostgreSQL may be added later if needed.
+
+OBSERVABILITY:
+
+Prometheus + OpenTelemetry.
+
+ANALYSIS:
+
+Python scripts may be added later, but the benchmark itself MUST NOT
+depend on Python for execution.
+
+CONTAINERIZATION:
+
+Docker + Docker Compose.
+
+============================================================
+4. REPOSITORY STRUCTURE
+============================================================
+
+Create:
+
+browser-concurrency-research-lab/
+
+    README.md
+    LICENSE
+    Makefile
+    docker-compose.yml
+    .gitignore
+    .env.example
+
+    cmd/
+        bench/
+
+    internal/
+        config/
+        controller/
+        scheduler/
+        workers/
+        browser/
+        contexts/
+        cdp/
+        httpworker/
+        hybrid/
+        metrics/
+        process/
+        results/
+        scenarios/
+        system/
+
+    target/
+        frontend/
+        backend/
+        database/
+
+    scenarios/
+        headed.yaml
+        headless.yaml
+        persistent-contexts.yaml
+        cdp.yaml
+        http.yaml
+        hybrid.yaml
+        cef.yaml
+
+    telemetry/
+
+    scripts/
+        environment-check
+        cleanup
+        run-sweep
+
+    results/
+        raw/
+        summaries/
+
+    docs/
+        architecture.md
+        methodology.md
+        reproducibility.md
+        benchmark-protocol.md
+
+    tests/
+
+============================================================
+5. SYNTHETIC TARGET APPLICATION
+============================================================
+
+Build a realistic modern SPA.
+
+It must NOT contact external services.
+
+Frontend:
+
+React
+TypeScript
+Vite
+
+Routes:
+
+/login
+/home
+/product/:id
+/cart
+/checkout
+/result
+
+Backend:
+
+POST /api/session
+
+GET /api/products
+
+GET /api/products/:id
+
+POST /api/cart
+
+GET /api/cart
+
+POST /api/checkout
+
+GET /api/order/:id
+
+WebSocket:
+
+/ws/events
+
+The application must support:
+
+- cookies
+- localStorage
+- IndexedDB
+- React state
+- WebSocket events
+- asynchronous API requests
+- configurable artificial latency
+- configurable payload size
+- configurable JavaScript workload
+
+============================================================
+6. SYNTHETIC WORKFLOWS
+============================================================
+
+Implement these workflows.
+
+WORKFLOW 1 — MINIMAL
+
+    launch
+    navigate
+    DOM ready
+    finish
+
+WORKFLOW 2 — SPA
+
+    launch
+    navigate home
+    navigate product
+    navigate cart
+    finish
+
+WORKFLOW 3 — STATEFUL
+
+    launch
+    create session
+    navigate
+    localStorage operation
+    IndexedDB operation
+    API calls
+    finish
+
+WORKFLOW 4 — COMPLEX
+
+    launch
+    create session
+    navigate
+    execute JavaScript
+    access localStorage
+    access IndexedDB
+    API calls
+    WebSocket connection
+    cart operation
+    checkout-like operation
+    result page
+    finish
+
+Every workflow must have deterministic behavior.
+
+============================================================
+7. BENCHMARK SCENARIOS
+============================================================
+
+Implement the following.
+
+------------------------------------------------------------
+SCENARIO A — HEADED CHROMIUM
+------------------------------------------------------------
+
+For each logical worker:
+
+    launch independent Chromium
+    create page
+    execute workflow
+    close browser
+
+This is the intentionally expensive baseline.
+
+Measure everything.
+
+------------------------------------------------------------
+SCENARIO B — HEADLESS CHROMIUM
+------------------------------------------------------------
+
+Same architecture as A.
+
+Difference:
+
+    Chromium runs headless.
+
+Do NOT change the workflow.
+
+This isolates the effect of graphical rendering/UI.
+
+------------------------------------------------------------
+SCENARIO C — PERSISTENT CHROMIUM + CONTEXTS
+------------------------------------------------------------
+
+Launch one Chromium browser.
+
+Create multiple isolated contexts.
+
+Example:
+
+    Chromium
+        |
+        +-- Context 1
+        +-- Context 2
+        +-- Context 3
+        +-- Context N
+
+Each context must have independent:
+
+    cookies
+    localStorage
+    IndexedDB
+
+Measure:
+
+    browser startup
+    context creation
+    page creation
+    navigation
+    workflow
+    memory
+    CPU
+    throughput
+
+------------------------------------------------------------
+SCENARIO D — CDP
+------------------------------------------------------------
+
+Start Chromium independently.
+
+Connect through CDP.
+
+Measure separately:
+
+    browser startup
+    CDP connection
+    context creation
+    page creation
+    workflow
+
+The implementation must NOT claim that CDP is faster.
+
+The benchmark exists to determine whether connection/reuse changes
+the performance characteristics.
+
+------------------------------------------------------------
+SCENARIO E — HTTP ONLY
+------------------------------------------------------------
+
+Execute equivalent synthetic workflows using Go HTTP clients.
+
+Use:
+
+    connection pooling
+    keep-alive
+    bounded concurrency
+
+No browser.
+
+This establishes a lightweight baseline.
+
+------------------------------------------------------------
+SCENARIO F — HYBRID
+------------------------------------------------------------
+
+Implement logical workers where selected workflow operations are executed
+through HTTP and selected operations through browser contexts.
+
+Example:
+
+    logical task
+        |
+        +-- HTTP
+        +-- HTTP
+        +-- browser
+        +-- HTTP
+        +-- finish
+
+Make the escalation policy configurable.
+
+Do NOT optimize against any third-party website.
+
+------------------------------------------------------------
+SCENARIO G — CEF
+------------------------------------------------------------
+
+OPTIONAL.
+
+Do not implement CEF until all other scenarios work and produce valid results.
+
+Use CEF only against the synthetic application.
+
+Measure:
+
+    initialization
+    browser creation
+    page creation
+    navigation
+    workflow
+    memory
+    CPU
+    process count
+    throughput
+
+============================================================
+8. CONCURRENCY LEVELS
+============================================================
+
+Support:
+
+    1
+    5
+    10
+    25
+    50
+    100
+    250
+    500
+    750
+    1000
+
+logical workers.
+
+The benchmark MUST NOT assume that every machine can support 1000
+real browser contexts.
+
+If the system reaches resource exhaustion:
+
+    record the failure
+    record the resource state
+    stop escalation
+    preserve all results
+    exit cleanly
+
+Never crash the machine intentionally.
+
+============================================================
+9. EXPERIMENT MODES
+============================================================
+
+Support:
+
+FIXED:
+
+    run exactly N workers
+
+RAMP:
+
+    1
+    5
+    10
+    25
+    ...
+    1000
+
+STEP:
+
+    increase concurrency every X seconds
+
+STEADY:
+
+    maintain N concurrent workers for T seconds
+
+SPIKE:
+
+    rapidly increase concurrency
+
+These modes allow us to study both normal operation and saturation.
+
+============================================================
+10. BENCHMARK TIMING
+============================================================
+
+Default:
+
+warmup:
+
+    30 seconds
+
+measurement:
+
+    180 seconds
+
+cooldown:
+
+    30 seconds
+
+Make all values configurable.
+
+Example:
+
+    --warmup 30
+    --duration 180
+    --cooldown 30
+
+Do not include warmup data in the primary performance measurements.
+
+============================================================
+11. METRICS
+============================================================
+
+Collect system metrics every 1 second.
+
+SYSTEM:
+
+    CPU %
+    RAM used
+    process RSS
+    system memory
+    swap
+    disk read
+    disk write
+    network RX
+    network TX
+    process count
+    thread count
+
+BROWSER:
+
+    browser startup latency
+    browser connection latency
+    context creation latency
+    page creation latency
+    navigation latency
+    workflow latency
+
+TASK:
+
+    tasks created
+    tasks queued
+    tasks active
+    tasks completed
+    tasks failed
+    tasks cancelled
+    retries
+
+APPLICATION:
+
+    request count
+    response count
+    API latency
+    WebSocket events
+    API failures
+    workflow failures
+
+============================================================
+12. LATENCY MEASUREMENTS
+============================================================
+
+For each operation record:
+
+    timestamp_start
+    timestamp_end
+    duration
+    worker_id
+    task_id
+    browser_id
+    context_id
+    page_id
+    scenario
+    workflow
+
+Measure:
+
+    startup
+    connection
+    context creation
+    page creation
+    navigation
+    workflow
+
+Never overwrite raw measurements.
+
+============================================================
+13. PROCESS TOPOLOGY
+============================================================
+
+This is VERY important.
+
+The system must periodically record the process tree.
+
+For each benchmark:
+
+    PID
+    parent PID
+    process name
+    CPU
+    RSS memory
+    thread count
+
+This allows us to understand what actually happens underneath:
+
+Example:
+
+    controller
+       |
+       +-- Chromium
+       |     |
+       |     +-- renderer
+       |     +-- GPU
+       |     +-- utility
+       |
+       +-- workers
+
+The result should allow us to distinguish:
+
+    logical tasks
+
+from:
+
+    OS processes.
+
+============================================================
+14. RESOURCE SNAPSHOTS
+============================================================
+
+Every 1 second:
+
+    system snapshot
+
+Every 5 seconds:
+
+    process tree snapshot
+
+At lifecycle events:
+
+    browser created
+    browser connected
+    context created
+    page created
+    task started
+    task completed
+    task failed
+
+This produces enough data for later analysis.
+
+============================================================
+15. RAW DATA FORMAT
+============================================================
+
+Every benchmark gets a unique:
+
+    run_id
+
+Example:
+
+    20260820T120000Z-persistent-100-run03
+
+Directory:
+
+results/raw/<run_id>/
+
+Files:
+
+    metadata.json
+
+    system_metrics.csv
+
+    process_metrics.csv
+
+    browser_metrics.csv
+
+    task_metrics.csv
+
+    request_metrics.csv
+
+    events.jsonl
+
+    summary.json
+
+DO NOT store only aggregated data.
+
+Raw data must remain available.
+
+============================================================
+16. METADATA
+============================================================
+
+metadata.json must include:
+
+    run_id
+    scenario
+    workflow
+    concurrency
+    duration
+    warmup
+    cooldown
+
+Environment:
+
+    OS
+    kernel
+    CPU model
+    CPU cores
+    RAM
+    architecture
+
+Software:
+
+    Go version
+    Playwright version
+    Chromium version
+    Node version
+    React version
+
+Configuration:
+
+    browser mode
+    headless
+    context count
+    worker count
+    artificial API latency
+    payload sizes
+
+============================================================
+17. STATISTICAL SUMMARY
+============================================================
+
+The benchmark runner itself should calculate basic summaries.
+
+For every latency distribution:
+
+    min
+    max
+    mean
+    median
+    P90
+    P95
+    P99
+    standard deviation
+
+For every run calculate:
+
+    total tasks
+    completed tasks
+    failed tasks
+    throughput
+    peak RAM
+    average RAM
+    peak CPU
+    average CPU
+    process count
+
+============================================================
+18. DERIVED METRICS
+============================================================
+
+Calculate:
+
+MEMORY PER ACTIVE SESSION
+
+    peak_or_average_memory_delta / active_sessions
+
+CPU PER ACTIVE SESSION
+
+    CPU / active_sessions
+
+THROUGHPUT
+
+    completed_workflows / measurement_seconds
+
+THROUGHPUT PER GB
+
+    throughput / RAM_GB
+
+FAILURE RATE
+
+    failed / total
+
+SUCCESS RATE
+
+    completed / total
+
+SATURATION POINT
+
+The highest concurrency level before configured degradation thresholds
+are crossed.
+
+============================================================
+19. SATURATION THRESHOLDS
+============================================================
+
+Make thresholds configurable.
+
+Initial defaults:
+
+    sustained CPU > 90%
+    memory pressure detected
+    P95 latency > 2x baseline
+    P99 latency > 3x baseline
+    failure rate > 2%
+    browser creation failures
+    context creation failures
+
+Do not treat these as universal industry standards.
+
+They are experimental thresholds.
+
+Document them clearly.
+
+============================================================
+20. BENCHMARK MATRIX
+============================================================
+
+Eventually run:
+
+Scenario:
+
+    headed
+    headless
+    persistent-contexts
+    cdp
+    http
+    hybrid
+    cef (optional)
+
+Concurrency:
+
+    1
+    5
+    10
+    25
+    50
+    100
+    250
+    500
+    750
+    1000
+
+Workflow:
+
+    minimal
+    SPA
+    stateful
+    complex
+
+This produces a matrix.
+
+Do not run the entire matrix blindly on the first execution.
+
+Implement a quick benchmark first.
+
+============================================================
+21. QUICK BENCHMARK
+============================================================
+
+Create:
+
+    bench quick
+
+It should run:
+
+    1
+    10
+    50
+    100
+
+for:
+
+    headed
+    headless
+    persistent-contexts
+    HTTP
+
+Purpose:
+
+    verify that the system works.
+
+============================================================
+22. FULL SWEEP
+============================================================
+
+Create:
+
+    bench sweep
+
+Allow:
+
+    --scenarios
+    --concurrency
+    --workflow
+    --repetitions
+
+Example:
+
+    bench sweep \
+      --scenarios headed,headless,persistent-contexts,cdp,http,hybrid \
+      --concurrency 1,10,25,50,100,250,500 \
+      --workflow complex \
+      --repetitions 5
+
+============================================================
+23. CLI
+============================================================
+
+Implement:
+
+    bench version
+
+    bench validate
+
+    bench list-scenarios
+
+    bench quick
+
+    bench run
+
+    bench sweep
+
+    bench status
+
+    bench cleanup
+
+    bench summarize
+
+Example:
+
+    bench run \
+      --scenario persistent-contexts \
+      --concurrency 100 \
+      --workflow complex \
+      --duration 180
+
+============================================================
+24. CONFIGURATION
+============================================================
+
+Use YAML.
+
+Example:
+
+scenario: persistent-contexts
+
+concurrency:
+  logical_tasks: 100
+
+browser:
+  engine: chromium
+  headless: true
+  reuse_browser: true
+
+contexts:
+  count: 100
+
+workflow:
+  name: complex
+
+timing:
+  warmup_seconds: 30
+  measurement_seconds: 180
+  cooldown_seconds: 30
+
+target:
+  base_url: http://localhost:8080
+
+telemetry:
+  interval_seconds: 1
+
+============================================================
+25. WORKER ARCHITECTURE
+============================================================
+
+Implement:
+
+Controller
+    |
+Scheduler
+    |
+Worker Pool
+    |
+Scenario
+    |
+Execution Engine
+
+Use bounded concurrency.
+
+Do not create 1000 goroutines that simultaneously launch 1000
+browser processes simply because the requested logical concurrency is 1000.
+
+Logical concurrency and physical resource concurrency must be separate
+configuration values.
+
+Example:
+
+logical_tasks = 1000
+
+browser_worker_limit = 50
+
+This distinction is central to the research.
+
+============================================================
+26. BROWSER POOL
+============================================================
+
+For persistent scenarios implement:
+
+BrowserPool
+
+Responsibilities:
+
+    create browser
+    acquire context
+    release context
+    create page
+    cleanup
+    health checking
+
+Use explicit lifecycle management.
+
+No resource leaks.
+
+============================================================
+27. HTTP WORKER POOL
+============================================================
+
+Implement:
+
+    bounded worker pool
+    HTTP connection reuse
+    timeout
+    cancellation
+    backpressure
+
+Record:
+
+    requests/sec
+    latency
+    errors
+
+============================================================
+28. HYBRID WORKER POOL
+============================================================
+
+Implement separate pools:
+
+    HTTP pool
+    Browser pool
+
+Logical workers can move between them.
+
+The system must record:
+
+    time spent HTTP
+    time spent browser
+    number of browser escalations
+    browser utilization
+    HTTP utilization
+
+This is critical for later analysis.
+
+============================================================
+29. FAILURE HANDLING
+============================================================
+
+Never silently retry.
+
+Every retry must be recorded.
+
+Record:
+
+    error_type
+    error_message
+    retry_count
+    timestamp
+    worker
+    task
+    scenario
+
+Distinguish:
+
+    application error
+    browser error
+    timeout
+    resource exhaustion
+    cancellation
+    infrastructure error
+
+============================================================
+30. CLEANUP
+============================================================
+
+This is mandatory.
+
+After every run:
+
+    close pages
+    close contexts
+    close browsers
+    terminate workers
+    flush metrics
+    flush files
+    release sockets
+
+On SIGINT:
+
+    gracefully cancel benchmark
+    cleanup resources
+    persist partial results
+    exit with nonzero status
+
+There must be no orphan Chromium processes.
+
+============================================================
+31. TESTING
+============================================================
+
+Implement:
+
+Unit tests:
+
+    scheduler
+    worker pool
+    configuration
+    statistics
+    result writer
+
+Integration tests:
+
+    target application
+    HTTP workflow
+    browser workflow
+
+Lifecycle tests:
+
+    browser cleanup
+    context cleanup
+    cancellation
+    timeout
+    worker exhaustion
+
+Stress tests:
+
+    100 logical tasks
+    500 logical tasks
+    1000 logical tasks
+
+Do not assume 1000 real browsers.
+
+============================================================
+32. DOCKER
+============================================================
+
+Create Docker Compose services:
+
+    frontend
+    backend
+    database
+    prometheus
+    grafana
+
+The benchmark controller can run:
+
+    locally
+
+or:
+
+    inside its own container.
+
+Document both.
+
+============================================================
+33. ENVIRONMENT CHECK
+============================================================
+
+Implement:
+
+    bench validate
+
+It must report:
+
+    OS
+    CPU
+    cores
+    RAM
+    available disk
+    Go
+    Node
+    Playwright
+    Chromium
+    Docker
+
+It must detect obvious configuration problems before a large benchmark.
+
+============================================================
+34. REPRODUCIBILITY
+============================================================
+
+Every run must be reproducible.
+
+Pin:
+
+    dependencies
+    browser version
+    application version
+
+Record:
+
+    git commit
+    configuration hash
+    environment information
+
+Include a reproducibility document.
+
+============================================================
+35. RESEARCH ARTIFACTS
+============================================================
+
+The project must eventually make it easy to produce:
+
+    CSV
+    JSON
+    Markdown
+    charts
+
+from benchmark results.
+
+Do NOT fabricate results.
+
+Do NOT create placeholder performance numbers that look real.
+
+If no benchmark has been run, output:
+
+    "No measurement available."
+
+============================================================
+36. IMPLEMENTATION ORDER
+============================================================
+
+DO NOT build everything at once.
+
+Follow this order.
+
+PHASE 1
+
+    repository
+    Go CLI
+    configuration
+    logging
+    result model
+
+PHASE 2
+
+    synthetic React application
+    Go backend
+    API
+    WebSocket
+    database
+
+PHASE 3
+
+    HTTP benchmark
+
+PHASE 4
+
+    headed Chromium
+
+PHASE 5
+
+    headless Chromium
+
+PHASE 6
+
+    persistent browser + contexts
+
+PHASE 7
+
+    CDP
+
+PHASE 8
+
+    hybrid
+
+PHASE 9
+
+    telemetry
+
+PHASE 10
+
+    process-tree monitoring
+
+PHASE 11
+
+    concurrency sweeps
+
+PHASE 12
+
+    optional CEF
+
+PHASE 13
+
+    reproducibility hardening
+
+============================================================
+37. FIRST MILESTONE
+============================================================
+
+Do NOT attempt the full system immediately.
+
+First produce:
+
+    synthetic application
+    Go controller
+    HTTP benchmark
+    headed Chromium benchmark
+    headless Chromium benchmark
+    raw result collection
+
+The first successful command should be:
+
+    bench quick
+
+It should generate:
+
+    results/raw/<run-id>/
+
+with valid:
+
+    metadata.json
+    system_metrics.csv
+    task_metrics.csv
+    summary.json
+
+============================================================
+38. SECOND MILESTONE
+============================================================
+
+Add:
+
+    persistent Chromium
+    contexts
+    context lifecycle
+    process monitoring
+
+Then validate:
+
+    1
+    10
+    50
+    100
+
+logical sessions.
+
+============================================================
+39. THIRD MILESTONE
+============================================================
+
+Add:
+
+    CDP
+    HTTP
+    hybrid
+
+Then compare all architectures.
+
+============================================================
+40. OPTIONAL CEF
+============================================================
+
+Only implement after all other architectures work.
+
+CEF must be treated as a separate experimental branch.
+
+Do not compromise the stability of the primary benchmark because of CEF.
+
+============================================================
+41. DEVELOPMENT RULE
+============================================================
+
+Do not optimize before measuring.
+
+First:
+
+    implement
+    validate
+    measure
+    profile
+    optimize
+    measure again
+
+Every optimization must be justified by benchmark evidence.
+
+============================================================
+42. OUTPUT REQUIRED FROM YOU AFTER EACH PHASE
+============================================================
+
+At the end of each implementation phase provide:
+
+1. Files created/changed.
+2. Architecture implemented.
+3. Commands to run.
+4. Tests executed.
+5. Test results.
+6. Known limitations.
+7. Resource cleanup verification.
+8. Example benchmark output.
+9. What remains for the next phase.
+
+Do not claim a feature is complete unless it has been executed successfully.
+
+============================================================
+43. DEFINITION OF DONE
+============================================================
+
+The project is complete only when:
+
+[ ] Synthetic SPA works.
+
+[ ] Backend works.
+
+[ ] HTTP benchmark works.
+
+[ ] Headed Chromium benchmark works.
+
+[ ] Headless Chromium benchmark works.
+
+[ ] Persistent Chromium benchmark works.
+
+[ ] Browser contexts are isolated.
+
+[ ] CDP benchmark works.
+
+[ ] Hybrid benchmark works.
+
+[ ] Optional CEF benchmark works or is explicitly documented as
+    not implemented.
+
+[ ] CPU metrics work.
+
+[ ] RAM metrics work.
+
+[ ] Process metrics work.
+
+[ ] Browser lifecycle metrics work.
+
+[ ] Task metrics work.
+
+[ ] Raw data is persisted.
+
+[ ] Statistical summaries are generated.
+
+[ ] Concurrency sweeps work.
+
+[ ] Benchmark cleanup works.
+
+[ ] No orphan browser processes remain.
+
+[ ] Docker setup works.
+
+[ ] Documentation works.
+
+[ ] A clean-machine reproduction procedure exists.
+
+============================================================
+44. MOST IMPORTANT PRINCIPLE
+============================================================
+
+The system exists to answer questions with DATA.
+
+Never answer:
+
+    "Architecture X is faster."
+
+unless an experiment demonstrates it.
+
+Instead record:
+
+    architecture
+    hardware
+    browser version
+    workload
+    concurrency
+    measurement
+    confidence/variation
+
+Then allow the research analysis to determine the conclusion.
+
+The benchmark system should be neutral.
+
+============================================================
+END OF SPECIFICATION
+============================================================
