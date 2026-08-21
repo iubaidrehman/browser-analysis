@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"bcrl/internal/browser"
+	"bcrl/internal/cdp"
 	"bcrl/internal/config"
 	"bcrl/internal/contexts"
 	"bcrl/internal/httpworker"
@@ -19,6 +20,7 @@ import (
 	"bcrl/internal/results"
 	"bcrl/internal/scheduler"
 	"bcrl/internal/workflow"
+	"github.com/mxschmitt/playwright-go"
 )
 
 // Options controls a run.
@@ -46,7 +48,7 @@ func Run(ctx context.Context, opts Options) (*results.Summary, error) {
 	// scenarios use browser_worker_limit; HTTP uses http_worker_limit.
 	workerLimit := cfg.Concurrency.HTTPWorkerLimit
 	switch cfg.Scenario {
-	case "headed", "headless", "persistent-contexts":
+	case "headed", "headless", "persistent-contexts", "cdp":
 		workerLimit = cfg.Concurrency.BrowserWorkerLimit
 	}
 	pool, err := scheduler.NewPool(workerLimit, rec)
@@ -101,6 +103,25 @@ func Run(ctx context.Context, opts Options) (*results.Summary, error) {
 				return nil, fmt.Errorf("context pool %d: %w", i, err)
 			}
 			workers = append(workers, contexts.NewWorker(pool, cfg.Target.BaseURL, rec))
+		}
+
+	case "cdp":
+		pw, err := playwright.Run()
+		if err != nil {
+			return nil, fmt.Errorf("playwright run: %w", err)
+		}
+		defer pw.Stop()
+		executable := pw.Chromium.ExecutablePath()
+		perWorker := cfg.Contexts.Count / workerLimit
+		if perWorker < 1 {
+			perWorker = 1
+		}
+		for i := 0; i < workerLimit; i++ {
+			w, err := cdp.New(pw, executable, cfg.Browser.Headless, perWorker, rec, cfg.Target.BaseURL)
+			if err != nil {
+				return nil, fmt.Errorf("cdp worker %d: %w", i, err)
+			}
+			workers = append(workers, w)
 		}
 
 	default:

@@ -89,6 +89,7 @@ type Summary struct {
 	Latency          stats.Summary   `json:"latency"`
 	BrowserLaunch    stats.Summary   `json:"browser_launch"`
 	ContextCreation  stats.Summary   `json:"context_creation"`
+	CDPConnect       stats.Summary   `json:"cdp_connect"`
 	Failures         map[string]int  `json:"failures,omitempty"`
 }
 
@@ -131,7 +132,7 @@ func WriteRun(resultsDir string, rec *metrics.Recorder, cfg config.Config, wf wo
 			BrowserMode:  cfg.Browser.Engine,
 			Headless:     cfg.Browser.Headless,
 			ContextCount: cfg.Contexts.Count,
-			WorkerCount:  cfg.Concurrency.HTTPWorkerLimit,
+			WorkerCount:  workerCountFor(cfg),
 		},
 		StartedAt: time.Now().UTC(),
 	}
@@ -152,9 +153,10 @@ func WriteRun(resultsDir string, rec *metrics.Recorder, cfg config.Config, wf wo
 	return dir, runID, nil
 }
 
-// writeBrowserCSV writes browser launch and context creation latencies.
+// writeBrowserCSV writes browser launch, context creation, and CDP connect
+// latencies.
 func writeBrowserCSV(dir string, rec *metrics.Recorder) error {
-	_, _, _, launches, contextCreations := rec.Latencies()
+	_, _, _, launches, contextCreations, cdpConnects := rec.Latencies()
 	path := filepath.Join(dir, "browser_metrics.csv")
 	f, err := os.Create(path)
 	if err != nil {
@@ -162,12 +164,14 @@ func writeBrowserCSV(dir string, rec *metrics.Recorder) error {
 	}
 	defer f.Close()
 	w := csv.NewWriter(f)
-	if err := w.Write([]string{"launch_latency_seconds", "context_creation_seconds"}); err != nil {
+	if err := w.Write([]string{"launch_latency_seconds", "context_creation_seconds", "cdp_connect_seconds"}); err != nil {
 		return err
 	}
 	rows := len(launches)
-	if len(contextCreations) > rows {
-		rows = len(contextCreations)
+	for _, s := range [][]float64{contextCreations, cdpConnects} {
+		if len(s) > rows {
+			rows = len(s)
+		}
 	}
 	for i := 0; i < rows; i++ {
 		launch := ""
@@ -178,7 +182,11 @@ func writeBrowserCSV(dir string, rec *metrics.Recorder) error {
 		if i < len(contextCreations) {
 			ctx = strconv.FormatFloat(contextCreations[i], 'f', 9, 64)
 		}
-		if err := w.Write([]string{launch, ctx}); err != nil {
+		cdp := ""
+		if i < len(cdpConnects) {
+			cdp = strconv.FormatFloat(cdpConnects[i], 'f', 9, 64)
+		}
+		if err := w.Write([]string{launch, ctx, cdp}); err != nil {
 			return err
 		}
 	}
@@ -215,12 +223,24 @@ func itoa(n int) string {
 	return fmt.Sprintf("%d", n)
 }
 
+// workerCountFor returns the physical worker limit for the scenario: browser
+// scenarios use browser_worker_limit, HTTP uses http_worker_limit.
+func workerCountFor(cfg config.Config) int {
+	switch cfg.Scenario {
+	case "headed", "headless", "persistent-contexts", "cdp", "hybrid":
+		return cfg.Concurrency.BrowserWorkerLimit
+	default:
+		return cfg.Concurrency.HTTPWorkerLimit
+	}
+}
+
 // BuildSummary computes the aggregate summary from recorded metrics.
 func BuildSummary(rec *metrics.Recorder, cfg config.Config, workflowName string, runID RunID) *Summary {
-	workflowLat, _, _, browserLaunchLat, contextCreationLat := rec.Latencies()
+	workflowLat, _, _, browserLaunchLat, contextCreationLat, cdpConnectLat := rec.Latencies()
 	dist := stats.Summarize(workflowLat)
 	launchDist := stats.Summarize(browserLaunchLat)
 	contextDist := stats.Summarize(contextCreationLat)
+	cdpDist := stats.Summarize(cdpConnectLat)
 
 	c := rec.Snapshot()
 	total := c.Created
@@ -244,6 +264,7 @@ func BuildSummary(rec *metrics.Recorder, cfg config.Config, workflowName string,
 		Latency:        dist,
 		BrowserLaunch:  launchDist,
 		ContextCreation: contextDist,
+		CDPConnect:     cdpDist,
 		Failures:       rec.Failures(),
 	}
 }

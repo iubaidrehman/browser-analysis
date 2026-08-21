@@ -15,6 +15,7 @@ type Recorder struct {
 	requestLatencies  []float64 // seconds
 	browserLaunches   []float64 // seconds (scenarios A/B launch latency)
 	contextCreations  []float64 // seconds (scenario C context creation)
+	cdpConnects       []float64 // seconds (scenario D CDP connect)
 
 	tasksCreated  int
 	tasksQueued   int
@@ -56,9 +57,9 @@ func (r *Recorder) Failures() map[string]int {
 }
 
 // Reset clears per-measurement recorded data at the warmup/measurement
-// boundary. Setup-phase series (browser launches, context creations) are
-// preserved because they are recorded once before warmup and never contain
-// warmup samples.
+// boundary. Setup-phase series (browser launches, context creations, CDP
+// connects) are preserved because they are recorded once before warmup and
+// never contain warmup samples.
 func (r *Recorder) Reset() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -91,6 +92,13 @@ func (r *Recorder) RecordContextCreation(d time.Duration) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.contextCreations = append(r.contextCreations, d.Seconds())
+}
+
+// RecordCDPConnect adds a CDP connection duration (seconds).
+func (r *Recorder) RecordCDPConnect(d time.Duration) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.cdpConnects = append(r.cdpConnects, d.Seconds())
 }
 
 // RecordWorkflow adds a completed workflow duration (seconds).
@@ -148,7 +156,7 @@ func (r *Recorder) WSEvent() { r.bump(func() { r.wsEvents++ }) }
 func (r *Recorder) WorkflowFailed() { r.bump(func() { r.workflowFailed++ }) }
 
 // Latencies returns copies of the latency series.
-func (r *Recorder) Latencies() (workflow, step, request, browserLaunch, contextCreation []float64) {
+func (r *Recorder) Latencies() (workflow, step, request, browserLaunch, contextCreation, cdpConnect []float64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	workflow = append([]float64(nil), r.workflowLatencies...)
@@ -156,6 +164,7 @@ func (r *Recorder) Latencies() (workflow, step, request, browserLaunch, contextC
 	request = append([]float64(nil), r.requestLatencies...)
 	browserLaunch = append([]float64(nil), r.browserLaunches...)
 	contextCreation = append([]float64(nil), r.contextCreations...)
+	cdpConnect = append([]float64(nil), r.cdpConnects...)
 	return
 }
 

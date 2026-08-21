@@ -9,18 +9,16 @@ does not contact external services.
 
 ## Status
 
-**Phase 6** — persistent browser + contexts benchmark (scenario C) implemented:
+**Phase 7** — CDP benchmark (scenario D) implemented:
 
-- One persistent Chromium per worker (sharded across `browser_worker_limit`),
-  with isolated browser contexts (cookies/localStorage/IndexedDB) acquired
-  and released per logical task
-- Context creation latency measured separately and persisted alongside
-  browser launch latency in `browser_metrics.csv`
-- `bench quick` now runs the full spec matrix: http, headless,
-  persistent-contexts, headed at concurrency 1/10/50/100
+- Chromium spawned independently (raw process with `--remote-debugging-port=0`),
+  connected via CDP
+- Browser startup (spawn → DevToolsActivePort) and CDP connection measured
+  separately, persisted to `browser_metrics.csv`
+- Persistent CDP-connected browser with per-task isolated contexts
 
-Phases 3-5 (http, headed, headless) remain implemented. CDP (D), hybrid (F),
-and CEF (G) are not yet implemented.
+Phases 3-6 (http, headed, headless, persistent-contexts) remain implemented.
+Hybrid (F) and CEF (G) are not yet implemented.
 
 ## Quick start
 

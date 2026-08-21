@@ -33,7 +33,13 @@ func NewPool(manager *browser.Manager, headless bool, n int, rec *metrics.Record
 		return nil, err
 	}
 	rec.RecordBrowserLaunch(launchDur)
+	return NewPoolWithBrowser(b, n, rec)
+}
 
+// NewPoolWithBrowser builds a context pool over an already-connected browser
+// (used by scenario D, where the browser is spawned and connected via CDP
+// before the pool is constructed).
+func NewPoolWithBrowser(b playwright.Browser, n int, rec *metrics.Recorder) (*Pool, error) {
 	p := &Pool{browser: b, rec: rec, inUse: make(map[playwright.BrowserContext]bool)}
 	for i := 0; i < n; i++ {
 		ctx, dur, err := p.newContext()
