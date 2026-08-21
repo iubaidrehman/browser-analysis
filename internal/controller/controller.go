@@ -16,6 +16,7 @@ import (
 	"bcrl/internal/config"
 	"bcrl/internal/contexts"
 	"bcrl/internal/httpworker"
+	"bcrl/internal/hybrid"
 	"bcrl/internal/metrics"
 	"bcrl/internal/results"
 	"bcrl/internal/scheduler"
@@ -48,7 +49,7 @@ func Run(ctx context.Context, opts Options) (*results.Summary, error) {
 	// scenarios use browser_worker_limit; HTTP uses http_worker_limit.
 	workerLimit := cfg.Concurrency.HTTPWorkerLimit
 	switch cfg.Scenario {
-	case "headed", "headless", "persistent-contexts", "cdp":
+	case "headed", "headless", "persistent-contexts", "cdp", "hybrid":
 		workerLimit = cfg.Concurrency.BrowserWorkerLimit
 	}
 	pool, err := scheduler.NewPool(workerLimit, rec)
@@ -122,6 +123,37 @@ func Run(ctx context.Context, opts Options) (*results.Summary, error) {
 				return nil, fmt.Errorf("cdp worker %d: %w", i, err)
 			}
 			workers = append(workers, w)
+		}
+
+	case "hybrid":
+		client := &http.Client{
+			Timeout: 60 * time.Second,
+			Transport: &http.Transport{
+				MaxIdleConns:        workerLimit * 2,
+				MaxIdleConnsPerHost: workerLimit,
+				IdleConnTimeout:     90 * time.Second,
+			},
+		}
+		defer client.CloseIdleConnections()
+		manager, err := browser.NewManager()
+		if err != nil {
+			return nil, fmt.Errorf("browser manager: %w", err)
+		}
+		defer manager.Close()
+		perWorker := cfg.Contexts.Count / workerLimit
+		if perWorker < 1 {
+			perWorker = 1
+		}
+		for i := 0; i < workerLimit; i++ {
+			pool, err := contexts.NewPool(manager, cfg.Browser.Headless, perWorker, rec)
+			if err != nil {
+				return nil, fmt.Errorf("hybrid context pool %d: %w", i, err)
+			}
+			policy := hybrid.EscalationPolicy(cfg.Hybrid.Escalation)
+			if policy == "" {
+				policy = hybrid.PolicyWorkflow
+			}
+			workers = append(workers, hybrid.NewWorker(policy, pool, client, cfg.Target.BaseURL, rec))
 		}
 
 	default:

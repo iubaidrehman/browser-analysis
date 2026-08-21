@@ -90,6 +90,9 @@ type Summary struct {
 	BrowserLaunch    stats.Summary   `json:"browser_launch"`
 	ContextCreation  stats.Summary   `json:"context_creation"`
 	CDPConnect       stats.Summary   `json:"cdp_connect"`
+	Escalations      int             `json:"escalations,omitempty"`
+	HTTPStepTotal    float64         `json:"http_step_total_seconds,omitempty"`
+	BrowserStepTotal float64         `json:"browser_step_total_seconds,omitempty"`
 	Failures         map[string]int  `json:"failures,omitempty"`
 }
 
@@ -150,7 +153,46 @@ func WriteRun(resultsDir string, rec *metrics.Recorder, cfg config.Config, wf wo
 		return "", "", err
 	}
 
+	// hybrid_metrics.csv — HTTP vs browser step time splits (scenario F).
+	if err := writeHybridCSV(dir, rec); err != nil {
+		return "", "", err
+	}
+
 	return dir, runID, nil
+}
+
+// writeHybridCSV writes hybrid transport step durations, one row per step.
+func writeHybridCSV(dir string, rec *metrics.Recorder) error {
+	httpSteps, browserSteps := rec.TransportLatencies()
+	path := filepath.Join(dir, "hybrid_metrics.csv")
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	w := csv.NewWriter(f)
+	if err := w.Write([]string{"http_step_seconds", "browser_step_seconds"}); err != nil {
+		return err
+	}
+	rows := len(httpSteps)
+	if len(browserSteps) > rows {
+		rows = len(browserSteps)
+	}
+	for i := 0; i < rows; i++ {
+		hs := ""
+		if i < len(httpSteps) {
+			hs = strconv.FormatFloat(httpSteps[i], 'f', 9, 64)
+		}
+		bs := ""
+		if i < len(browserSteps) {
+			bs = strconv.FormatFloat(browserSteps[i], 'f', 9, 64)
+		}
+		if err := w.Write([]string{hs, bs}); err != nil {
+			return err
+		}
+	}
+	w.Flush()
+	return w.Error()
 }
 
 // writeBrowserCSV writes browser launch, context creation, and CDP connect
@@ -237,6 +279,7 @@ func workerCountFor(cfg config.Config) int {
 // BuildSummary computes the aggregate summary from recorded metrics.
 func BuildSummary(rec *metrics.Recorder, cfg config.Config, workflowName string, runID RunID) *Summary {
 	workflowLat, _, _, browserLaunchLat, contextCreationLat, cdpConnectLat := rec.Latencies()
+	httpSteps, browserSteps := rec.TransportLatencies()
 	dist := stats.Summarize(workflowLat)
 	launchDist := stats.Summarize(browserLaunchLat)
 	contextDist := stats.Summarize(contextCreationLat)
@@ -265,8 +308,19 @@ func BuildSummary(rec *metrics.Recorder, cfg config.Config, workflowName string,
 		BrowserLaunch:  launchDist,
 		ContextCreation: contextDist,
 		CDPConnect:     cdpDist,
+		Escalations:    c.Escalations,
+		HTTPStepTotal:  sum(httpSteps),
+		BrowserStepTotal: sum(browserSteps),
 		Failures:       rec.Failures(),
 	}
+}
+
+func sum(vals []float64) float64 {
+	var s float64
+	for _, v := range vals {
+		s += v
+	}
+	return s
 }
 
 // WriteSummary persists the summary.json for a run directory.

@@ -29,18 +29,23 @@ func NewHTTPExecutor(client *http.Client, baseURL string) *HTTPExecutor {
 // status "skipped".
 func (e *HTTPExecutor) Execute(ctx context.Context, wf Workflow) ([]Result, time.Duration, error) {
 	start := time.Now()
-	sessionID := ""
-	orderID := ""
+	st := &SessionState{}
 	results := make([]Result, 0, len(wf.Steps))
 
 	for _, step := range wf.Steps {
-		res, err := e.executeStep(ctx, step, &sessionID, &orderID)
+		res, err := e.ExecuteStep(ctx, step, st)
 		results = append(results, res)
 		if err != nil {
 			return results, time.Since(start), err
 		}
 	}
 	return results, time.Since(start), nil
+}
+
+// ExecuteStep runs one workflow step over HTTP, threading session state.
+// Used by the hybrid executor to interleave HTTP steps with browser steps.
+func (e *HTTPExecutor) ExecuteStep(ctx context.Context, step Step, st *SessionState) (Result, error) {
+	return e.executeStep(ctx, step, &st.SessionID, &st.OrderID)
 }
 
 func (e *HTTPExecutor) executeStep(ctx context.Context, step Step, sessionID, orderID *string) (Result, error) {

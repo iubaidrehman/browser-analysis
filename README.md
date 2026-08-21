@@ -9,16 +9,17 @@ does not contact external services.
 
 ## Status
 
-**Phase 7** — CDP benchmark (scenario D) implemented:
+**Phase 8** — hybrid benchmark (scenario F) implemented:
 
-- Chromium spawned independently (raw process with `--remote-debugging-port=0`),
-  connected via CDP
-- Browser startup (spawn → DevToolsActivePort) and CDP connection measured
-  separately, persisted to `browser_metrics.csv`
-- Persistent CDP-connected browser with per-task isolated contexts
+- Workflow-driven escalation: browser-only ops (localStorage, IndexedDB,
+  execute-JS, WebSocket) plus navigation route to a browser context; API ops
+  route over HTTP, sharing session state across transports
+- Configurable escalation policy (`hybrid.escalation: workflow`)
+- Time-spent-HTTP vs time-spent-browser recorded per step and persisted to
+  `hybrid_metrics.csv`; escalation counts recorded per run
 
-Phases 3-6 (http, headed, headless, persistent-contexts) remain implemented.
-Hybrid (F) and CEF (G) are not yet implemented.
+Phases 3-7 (http, headed, headless, persistent-contexts, cdp) remain
+implemented. CEF (G) is not yet implemented.
 
 ## Quick start
 

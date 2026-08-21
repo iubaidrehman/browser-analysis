@@ -19,6 +19,16 @@ type Config struct {
 	Timing      Timing      `yaml:"timing" json:"timing"`
 	Target      Target      `yaml:"target" json:"target"`
 	Telemetry   Telemetry   `yaml:"telemetry" json:"telemetry"`
+	Hybrid      Hybrid      `yaml:"hybrid" json:"hybrid"`
+}
+
+// Hybrid controls scenario F's escalation policy (spec section 28).
+type Hybrid struct {
+	// Escalation selects which operations route to the browser. The only
+	// implemented policy is "workflow": browser-only ops (localStorage,
+	// IndexedDB, execute-js, WebSocket) plus navigation escalate; API ops
+	// stay on HTTP.
+	Escalation string `yaml:"escalation" json:"escalation"`
 }
 
 type Concurrency struct {
@@ -80,6 +90,7 @@ func Defaults() Config {
 		Telemetry: Telemetry{
 			IntervalSeconds: 1,
 		},
+		Hybrid: Hybrid{Escalation: "workflow"},
 	}
 }
 
@@ -126,6 +137,9 @@ func (c Config) Validate() error {
 	}
 	if c.Telemetry.IntervalSeconds < 1 {
 		return fmt.Errorf("telemetry.interval_seconds must be >= 1")
+	}
+	if c.Hybrid.Escalation != "" && c.Hybrid.Escalation != "workflow" {
+		return fmt.Errorf("hybrid.escalation must be %q, got %q", "workflow", c.Hybrid.Escalation)
 	}
 	return nil
 }

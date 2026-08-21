@@ -13,6 +13,8 @@ type Recorder struct {
 	workflowLatencies []float64 // seconds
 	stepLatencies     []float64 // seconds
 	requestLatencies  []float64 // seconds
+	httpStepLatencies []float64 // seconds (hybrid: time spent on HTTP steps)
+	browserStepLatencies []float64 // seconds (hybrid: time spent on browser steps)
 	browserLaunches   []float64 // seconds (scenarios A/B launch latency)
 	contextCreations  []float64 // seconds (scenario C context creation)
 	cdpConnects       []float64 // seconds (scenario D CDP connect)
@@ -29,6 +31,7 @@ type Recorder struct {
 	requestsFailed int
 	wsEvents       int
 	workflowFailed int
+	escalations    int
 
 	failures map[string]int
 }
@@ -66,6 +69,8 @@ func (r *Recorder) Reset() {
 	r.workflowLatencies = nil
 	r.stepLatencies = nil
 	r.requestLatencies = nil
+	r.httpStepLatencies = nil
+	r.browserStepLatencies = nil
 	r.tasksCreated = 0
 	r.tasksQueued = 0
 	r.tasksActive = 0
@@ -77,6 +82,7 @@ func (r *Recorder) Reset() {
 	r.requestsFailed = 0
 	r.wsEvents = 0
 	r.workflowFailed = 0
+	r.escalations = 0
 	r.failures = make(map[string]int)
 }
 
@@ -113,6 +119,20 @@ func (r *Recorder) RecordStep(d time.Duration) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.stepLatencies = append(r.stepLatencies, d.Seconds())
+}
+
+// RecordHTTPStep adds a hybrid HTTP-step duration (seconds).
+func (r *Recorder) RecordHTTPStep(d time.Duration) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.httpStepLatencies = append(r.httpStepLatencies, d.Seconds())
+}
+
+// RecordBrowserStep adds a hybrid browser-step duration (seconds).
+func (r *Recorder) RecordBrowserStep(d time.Duration) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.browserStepLatencies = append(r.browserStepLatencies, d.Seconds())
 }
 
 // RecordRequest adds an API request duration (seconds).
@@ -155,6 +175,9 @@ func (r *Recorder) WSEvent() { r.bump(func() { r.wsEvents++ }) }
 // WorkflowFailed records a failed workflow.
 func (r *Recorder) WorkflowFailed() { r.bump(func() { r.workflowFailed++ }) }
 
+// RecordEscalation records one browser escalation (hybrid scenario F).
+func (r *Recorder) RecordEscalation() { r.bump(func() { r.escalations++ }) }
+
 // Latencies returns copies of the latency series.
 func (r *Recorder) Latencies() (workflow, step, request, browserLaunch, contextCreation, cdpConnect []float64) {
 	r.mu.Lock()
@@ -165,6 +188,15 @@ func (r *Recorder) Latencies() (workflow, step, request, browserLaunch, contextC
 	browserLaunch = append([]float64(nil), r.browserLaunches...)
 	contextCreation = append([]float64(nil), r.contextCreations...)
 	cdpConnect = append([]float64(nil), r.cdpConnects...)
+	return
+}
+
+// TransportLatencies returns the hybrid HTTP/browser step time splits.
+func (r *Recorder) TransportLatencies() (httpSteps, browserSteps []float64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	httpSteps = append([]float64(nil), r.httpStepLatencies...)
+	browserSteps = append([]float64(nil), r.browserStepLatencies...)
 	return
 }
 
@@ -182,6 +214,7 @@ type Counters struct {
 	RequestsFailed int `json:"requests_failed"`
 	WSEvents       int `json:"ws_events"`
 	WorkflowFailed int `json:"workflow_failures"`
+	Escalations    int `json:"escalations"`
 }
 
 // Snapshot returns a copy of the counters.
@@ -200,5 +233,6 @@ func (r *Recorder) Snapshot() Counters {
 		RequestsFailed: r.requestsFailed,
 		WSEvents:       r.wsEvents,
 		WorkflowFailed: r.workflowFailed,
+		Escalations:    r.escalations,
 	}
 }

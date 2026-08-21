@@ -16,6 +16,9 @@ contexts:
 workflow:
   name: complex
 
+hybrid:
+  escalation: workflow
+
 timing:
   warmup_seconds: 2
   measurement_seconds: 10

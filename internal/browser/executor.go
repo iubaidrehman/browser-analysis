@@ -30,17 +30,23 @@ func NewPageExecutor(page playwright.Page) *PageExecutor {
 func (e *PageExecutor) Execute(ctx context.Context, baseURL string, wf workflow.Workflow) ([]workflow.Result, time.Duration, error) {
 	start := time.Now()
 	results := make([]workflow.Result, 0, len(wf.Steps))
-	sessionID := ""
-	orderID := ""
+	st := &workflow.SessionState{}
 
 	for _, step := range wf.Steps {
-		res, err := e.executeStep(ctx, baseURL, step, &sessionID, &orderID)
+		res, err := e.ExecuteStep(ctx, baseURL, step, st)
 		results = append(results, res)
 		if err != nil {
 			return results, time.Since(start), err
 		}
 	}
 	return results, time.Since(start), nil
+}
+
+// ExecuteStep runs one workflow step against the page, threading session
+// state through the given SessionState. Used by the hybrid executor to
+// interleave browser steps with HTTP steps.
+func (e *PageExecutor) ExecuteStep(ctx context.Context, baseURL string, step workflow.Step, st *workflow.SessionState) (workflow.Result, error) {
+	return e.executeStep(ctx, baseURL, step, &st.SessionID, &st.OrderID)
 }
 
 func (e *PageExecutor) executeStep(ctx context.Context, baseURL string, step workflow.Step, sessionID, orderID *string) (workflow.Result, error) {

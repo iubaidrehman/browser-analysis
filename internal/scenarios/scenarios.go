@@ -16,7 +16,7 @@ func All() []Info {
 		{ID: "persistent-contexts", Description: "One persistent Chromium with many browser contexts.", Implemented: true},
 		{ID: "cdp", Description: "One persistent Chromium controlled through CDP.", Implemented: true},
 		{ID: "http", Description: "Lightweight HTTP workers without a browser.", Implemented: true},
-		{ID: "hybrid", Description: "HTTP workers that escalate selected operations to a browser.", Implemented: false},
+		{ID: "hybrid", Description: "HTTP workers that escalate selected operations to a browser.", Implemented: true},
 		{ID: "cef", Description: "Off-screen CEF/Chromium (optional).", Implemented: false},
 	}
 }
