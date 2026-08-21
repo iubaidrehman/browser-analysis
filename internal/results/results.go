@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"time"
 
 	"bcrl/internal/config"
@@ -73,20 +74,21 @@ type ConfigInfo struct {
 
 // Summary is the aggregate result of a single run (spec section 17).
 type Summary struct {
-	RunID        RunID           `json:"run_id"`
-	Scenario     string          `json:"scenario"`
-	Workflow     string          `json:"workflow"`
-	TotalTasks   int             `json:"total_tasks"`
-	Completed    int             `json:"completed_tasks"`
-	Failed       int             `json:"failed_tasks"`
-	Throughput   float64         `json:"throughput"`
-	PeakRAMBytes uint64          `json:"peak_ram_bytes"`
-	AvgRAMBytes  uint64          `json:"avg_ram_bytes"`
-	PeakCPU      float64         `json:"peak_cpu"`
-	AvgCPU       float64         `json:"avg_cpu"`
-	ProcessCount int             `json:"process_count"`
-	Latency      stats.Summary   `json:"latency"`
-	Failures     map[string]int  `json:"failures,omitempty"`
+	RunID          RunID           `json:"run_id"`
+	Scenario       string          `json:"scenario"`
+	Workflow       string          `json:"workflow"`
+	TotalTasks     int             `json:"total_tasks"`
+	Completed      int             `json:"completed_tasks"`
+	Failed         int             `json:"failed_tasks"`
+	Throughput     float64         `json:"throughput"`
+	PeakRAMBytes   uint64          `json:"peak_ram_bytes"`
+	AvgRAMBytes    uint64          `json:"avg_ram_bytes"`
+	PeakCPU        float64         `json:"peak_cpu"`
+	AvgCPU         float64         `json:"avg_cpu"`
+	ProcessCount   int             `json:"process_count"`
+	Latency        stats.Summary   `json:"latency"`
+	BrowserLaunch  stats.Summary   `json:"browser_launch"`
+	Failures       map[string]int  `json:"failures,omitempty"`
 }
 
 // WriteJSON writes v to a JSON file inside dir, creating dir if needed.
@@ -141,7 +143,34 @@ func WriteRun(resultsDir string, rec *metrics.Recorder, cfg config.Config, wf wo
 		return "", "", err
 	}
 
+	// browser_metrics.csv — per-browser launch latencies (scenarios A/B/C/D).
+	if err := writeBrowserCSV(dir, rec); err != nil {
+		return "", "", err
+	}
+
 	return dir, runID, nil
+}
+
+// writeBrowserCSV writes browser launch latencies, one row per launch.
+func writeBrowserCSV(dir string, rec *metrics.Recorder) error {
+	_, _, _, launches := rec.Latencies()
+	path := filepath.Join(dir, "browser_metrics.csv")
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	w := csv.NewWriter(f)
+	if err := w.Write([]string{"launch_latency_seconds"}); err != nil {
+		return err
+	}
+	for _, l := range launches {
+		if err := w.Write([]string{strconv.FormatFloat(l, 'f', 9, 64)}); err != nil {
+			return err
+		}
+	}
+	w.Flush()
+	return w.Error()
 }
 
 // writeCountersCSV writes the task/request counters as a single-row CSV so
@@ -175,8 +204,9 @@ func itoa(n int) string {
 
 // BuildSummary computes the aggregate summary from recorded metrics.
 func BuildSummary(rec *metrics.Recorder, cfg config.Config, workflowName string, runID RunID) *Summary {
-	workflowLat, _, _ := rec.Latencies()
+	workflowLat, _, _, browserLaunchLat := rec.Latencies()
 	dist := stats.Summarize(workflowLat)
+	launchDist := stats.Summarize(browserLaunchLat)
 
 	c := rec.Snapshot()
 	total := c.Created
@@ -190,15 +220,16 @@ func BuildSummary(rec *metrics.Recorder, cfg config.Config, workflowName string,
 	}
 
 	return &Summary{
-		RunID:      runID,
-		Scenario:   cfg.Scenario,
-		Workflow:   workflowName,
-		TotalTasks: total,
-		Completed:  c.Complete,
-		Failed:     c.Failed,
-		Throughput: throughput,
-		Latency:    dist,
-		Failures:   rec.Failures(),
+		RunID:         runID,
+		Scenario:      cfg.Scenario,
+		Workflow:      workflowName,
+		TotalTasks:    total,
+		Completed:     c.Complete,
+		Failed:        c.Failed,
+		Throughput:    throughput,
+		Latency:       dist,
+		BrowserLaunch: launchDist,
+		Failures:      rec.Failures(),
 	}
 }
 

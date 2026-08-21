@@ -9,16 +9,18 @@ does not contact external services.
 
 ## Status
 
-**Phase 3** — HTTP benchmark (scenario E) implemented:
+**Phase 4** — headed + headless Chromium benchmarks (scenarios A/B) implemented:
 
-- Four deterministic workflows (minimal, SPA, stateful, complex) executed via
-  Go HTTP clients against the target application
-- Bounded worker pool (physical concurrency decoupled from logical concurrency)
-- Experiment modes: fixed, ramp, step, steady, spike
-- Raw result collection with `results/raw/<run-id>/` and statistical summaries
-- CLI: `bench run`, `bench quick`, `bench summarize`, `bench status`
+- Four deterministic workflows executed against real Playwright pages, with
+  localStorage/IndexedDB/execute-JS/WebSocket exercised in-page
+- One independent Chromium process per logical worker (headed or headless),
+  browser launch latency measured separately and persisted to
+  `browser_metrics.csv`
+- Scenario dispatch in the controller; physical worker count uses
+  `browser_worker_limit` for browser scenarios
 
-Browser scenarios (Phases 4+) are not yet implemented.
+Phase 3's HTTP benchmark remains implemented. Persistent contexts (C), CDP
+(D), hybrid (F), and CEF (G) are not yet implemented.
 
 ## Quick start
 
@@ -61,6 +63,14 @@ Summarize results:
 
 ```sh
 go run ./cmd/bench summarize
+```
+
+Run a browser scenario (requires Playwright Chromium installed; see
+`go run github.com/mxschmitt/playwright-go/cmd/playwright install chromium`):
+
+```sh
+go run ./cmd/bench run --config bench.yaml --scenario headless --concurrency 2
+go run ./cmd/bench run --config bench.yaml --scenario headed --concurrency 2
 ```
 
 On Windows, run the backend as a compiled binary (`go build -o backend.exe .`)

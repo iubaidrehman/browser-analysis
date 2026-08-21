@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"bcrl/internal/browser"
 	"bcrl/internal/config"
 	"bcrl/internal/httpworker"
 	"bcrl/internal/metrics"
@@ -39,29 +40,52 @@ func Run(ctx context.Context, opts Options) (*results.Summary, error) {
 	cfg := opts.Config
 	rec := metrics.NewRecorder()
 
-	// Build the worker pool. Physical concurrency is decoupled from logical
-	// concurrency: workers are the resource limit; tasks are the work.
-	pool, err := scheduler.NewPool(cfg.Concurrency.HTTPWorkerLimit, rec)
+	// Physical concurrency is decoupled from logical concurrency: workers are
+	// the resource limit; tasks are the work (spec section 25). Browser
+	// scenarios use browser_worker_limit; HTTP uses http_worker_limit.
+	workerLimit := cfg.Concurrency.HTTPWorkerLimit
+	if cfg.Scenario == "headed" || cfg.Scenario == "headless" {
+		workerLimit = cfg.Concurrency.BrowserWorkerLimit
+	}
+	pool, err := scheduler.NewPool(workerLimit, rec)
 	if err != nil {
 		return nil, fmt.Errorf("create pool: %w", err)
 	}
-
-	client := &http.Client{
-		Timeout: 60 * time.Second,
-		Transport: &http.Transport{
-			MaxIdleConns:        cfg.Concurrency.HTTPWorkerLimit * 2,
-			MaxIdleConnsPerHost: cfg.Concurrency.HTTPWorkerLimit,
-			IdleConnTimeout:     90 * time.Second,
-		},
-	}
-
-	workers := make([]scheduler.Worker, cfg.Concurrency.HTTPWorkerLimit)
-	for i := range workers {
-		workers[i] = httpworker.NewWorker(client, cfg.Target.BaseURL, rec)
-	}
-	pool.SetWorkers(workers)
 	defer pool.Close()
-	defer client.CloseIdleConnections()
+
+	var workers []scheduler.Worker
+
+	switch cfg.Scenario {
+	case "http":
+		client := &http.Client{
+			Timeout: 60 * time.Second,
+			Transport: &http.Transport{
+				MaxIdleConns:        workerLimit * 2,
+				MaxIdleConnsPerHost: workerLimit,
+				IdleConnTimeout:     90 * time.Second,
+			},
+		}
+		defer client.CloseIdleConnections()
+		for i := 0; i < workerLimit; i++ {
+			workers = append(workers, httpworker.NewWorker(client, cfg.Target.BaseURL, rec))
+		}
+
+	case "headed", "headless":
+		manager, err := browser.NewManager()
+		if err != nil {
+			return nil, fmt.Errorf("browser manager: %w", err)
+		}
+		defer manager.Close()
+		headless := cfg.Scenario == "headless"
+		for i := 0; i < workerLimit; i++ {
+			workers = append(workers, browser.NewWorker(manager, headless, cfg.Target.BaseURL, rec))
+		}
+
+	default:
+		return nil, fmt.Errorf("scenario %q not implemented in this phase", cfg.Scenario)
+	}
+
+	pool.SetWorkers(workers)
 
 	driver := scheduler.NewDriver(pool, rec, log)
 

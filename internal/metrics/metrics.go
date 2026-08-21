@@ -13,6 +13,7 @@ type Recorder struct {
 	workflowLatencies []float64 // seconds
 	stepLatencies     []float64 // seconds
 	requestLatencies  []float64 // seconds
+	browserLaunches   []float64 // seconds (scenarios A/B launch latency)
 
 	tasksCreated  int
 	tasksQueued   int
@@ -61,6 +62,7 @@ func (r *Recorder) Reset() {
 	r.workflowLatencies = nil
 	r.stepLatencies = nil
 	r.requestLatencies = nil
+	r.browserLaunches = nil
 	r.tasksCreated = 0
 	r.tasksQueued = 0
 	r.tasksActive = 0
@@ -73,6 +75,13 @@ func (r *Recorder) Reset() {
 	r.wsEvents = 0
 	r.workflowFailed = 0
 	r.failures = make(map[string]int)
+}
+
+// RecordBrowserLaunch adds a browser startup duration (seconds).
+func (r *Recorder) RecordBrowserLaunch(d time.Duration) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.browserLaunches = append(r.browserLaunches, d.Seconds())
 }
 
 // RecordWorkflow adds a completed workflow duration (seconds).
@@ -130,12 +139,13 @@ func (r *Recorder) WSEvent() { r.bump(func() { r.wsEvents++ }) }
 func (r *Recorder) WorkflowFailed() { r.bump(func() { r.workflowFailed++ }) }
 
 // Latencies returns copies of the latency series.
-func (r *Recorder) Latencies() (workflow, step, request []float64) {
+func (r *Recorder) Latencies() (workflow, step, request, browserLaunch []float64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	workflow = append([]float64(nil), r.workflowLatencies...)
 	step = append([]float64(nil), r.stepLatencies...)
 	request = append([]float64(nil), r.requestLatencies...)
+	browserLaunch = append([]float64(nil), r.browserLaunches...)
 	return
 }
 

@@ -11,11 +11,11 @@ type Info struct {
 // All returns the full scenario catalogue.
 func All() []Info {
 	return []Info{
-		{ID: "headed", Description: "One headed Chromium process per logical worker.", Implemented: false},
-		{ID: "headless", Description: "One headless Chromium process per logical worker.", Implemented: false},
+		{ID: "headed", Description: "One headed Chromium process per logical worker.", Implemented: true},
+		{ID: "headless", Description: "One headless Chromium process per logical worker.", Implemented: true},
 		{ID: "persistent-contexts", Description: "One persistent Chromium with many browser contexts.", Implemented: false},
 		{ID: "cdp", Description: "One persistent Chromium controlled through CDP.", Implemented: false},
-		{ID: "http", Description: "Lightweight HTTP workers without a browser.", Implemented: false},
+		{ID: "http", Description: "Lightweight HTTP workers without a browser.", Implemented: true},
 		{ID: "hybrid", Description: "HTTP workers that escalate selected operations to a browser.", Implemented: false},
 		{ID: "cef", Description: "Off-screen CEF/Chromium (optional).", Implemented: false},
 	}
