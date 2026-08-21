@@ -8,10 +8,17 @@
 # Go
 /vendor/
 
+# Target backend artifacts
+target/backend/target.db
+target/backend/*.db-shm
+target/backend/*.db-wal
+target/backend/backend
+
 # Node
 node_modules/
 dist/
 build/
+target/frontend/dist/
 
 # Python
 __pycache__/

@@ -1,0 +1,52 @@
+services:
+  frontend:
+    build:
+      context: ./target/frontend
+    ports:
+      - "8081:80"
+    depends_on:
+      - backend
+
+  backend:
+    build:
+      context: ./target/backend
+    environment:
+      TARGET_ADDR: ":8080"
+      TARGET_DB: "/data/target.db"
+      TARGET_API_LATENCY_MS: "${TARGET_API_LATENCY_MS:-0}"
+      TARGET_PAYLOAD_KB: "${TARGET_PAYLOAD_KB:-4}"
+      TARGET_JS_WORKLOAD_UNITS: "${TARGET_JS_WORKLOAD_UNITS:-0}"
+    volumes:
+      - backend-data:/data
+    ports:
+      - "8080:8080"
+
+  database:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bcrl
+      POSTGRES_PASSWORD: bcrl
+      POSTGRES_DB: bcrl
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    profiles: ["postgres"]
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    volumes:
+      - ./telemetry/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    profiles: ["telemetry"]
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    ports:
+      - "3000:3000"
+    profiles: ["telemetry"]
+
+volumes:
+  backend-data:
+  db-data:
