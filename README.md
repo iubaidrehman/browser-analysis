@@ -9,16 +9,15 @@ does not contact external services.
 
 ## Status
 
-**Phase 8** — hybrid benchmark (scenario F) implemented:
+**Phase 9** — system telemetry implemented:
 
-- Workflow-driven escalation: browser-only ops (localStorage, IndexedDB,
-  execute-JS, WebSocket) plus navigation route to a browser context; API ops
-  route over HTTP, sharing session state across transports
-- Configurable escalation policy (`hybrid.escalation: workflow`)
-- Time-spent-HTTP vs time-spent-browser recorded per step and persisted to
-  `hybrid_metrics.csv`; escalation counts recorded per run
+- Host resource sampling every 1s (CPU%, RAM used, process RSS, swap,
+  process/thread counts) via Win32 API on Windows
+- `system_metrics.csv` per run; summary now reports peak/avg CPU and RAM
+- Known gaps (disk/network counters, POSIX collector) documented in
+  `docs/methodology.md`
 
-Phases 3-7 (http, headed, headless, persistent-contexts, cdp) remain
+Phases 3-8 (http, headed, headless, persistent-contexts, cdp, hybrid) remain
 implemented. CEF (G) is not yet implemented.
 
 ## Quick start

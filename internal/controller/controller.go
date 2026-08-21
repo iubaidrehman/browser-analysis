@@ -180,6 +180,12 @@ func Run(ctx context.Context, opts Options) (*results.Summary, error) {
 		}
 	}()
 
+	// System telemetry: sample host resources at the configured interval.
+	sampler := metrics.NewSampler(time.Duration(cfg.Telemetry.IntervalSeconds) * time.Second)
+	sampleCtx, sampleCancel := context.WithCancel(runCtx)
+	defer sampleCancel()
+	samplerDone := sampler.Run(sampleCtx)
+
 	// The measurement window starts after warmup. The driver handles the full
 	// window; warmup/cooldown are accounted in the metadata.
 	err = driver.Run(runCtx, scheduler.RunConfig{
@@ -190,6 +196,10 @@ func Run(ctx context.Context, opts Options) (*results.Summary, error) {
 		Measurement: time.Duration(cfg.Timing.MeasurementSeconds) * time.Second,
 		Cooldown:    time.Duration(cfg.Timing.CooldownSeconds) * time.Second,
 	})
+
+	// Stop the sampler and wait for it to fully drain before writing.
+	sampleCancel()
+	samplerDone()
 
 	// On cancellation, persist partial results and report a cancellation so
 	// the CLI can exit nonzero (spec section 30).
@@ -205,8 +215,18 @@ func Run(ctx context.Context, opts Options) (*results.Summary, error) {
 	}
 	log.Info("results written", "dir", dir)
 
+	// Persist system telemetry CSV and read back the aggregates.
+	if werr := sampler.WriteCSV(dir); werr != nil {
+		log.Warn("system metrics write failed", "err", werr)
+	}
+	peakCPU, avgCPU, peakRAM, avgRAM := sampler.Aggregates()
+
 	// Build and persist the summary.
 	summary := results.BuildSummary(rec, cfg, opts.Workflow.Name, runID)
+	summary.PeakCPU = peakCPU
+	summary.AvgCPU = avgCPU
+	summary.PeakRAMBytes = peakRAM
+	summary.AvgRAMBytes = avgRAM
 	if werr := results.WriteSummary(dir, summary); werr != nil {
 		return nil, fmt.Errorf("write summary: %w", werr)
 	}
