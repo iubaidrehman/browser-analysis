@@ -38,7 +38,13 @@ CDP connect latency (scenario D) are recorded as separate series.
   on systems without a page file.
 - **The POSIX collector is a stub** returning zeroed snapshots; the lab is
   currently Windows-first.
-- **CPU% is host-wide aggregate** across all cores, not per-core.
+- **CPU% denominators**: `system_metrics.csv` reports host-wide CPU as a
+  percent of all cores. `process_metrics.csv` per-process CPU is normalized
+  to the same denominator (percent of all cores); both are clamped to
+  [0, 100].
+- **Elevated/system processes** appear in `process_metrics.csv` with
+  `access_denied=true` and zero CPU/RSS because they cannot be opened for
+  sampling by a non-elevated process.
 - **CEF (scenario G) is not implemented** — it requires a separate CEF
   toolchain and is documented as not-implemented rather than shipping a
   fragile experimental path.

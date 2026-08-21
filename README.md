@@ -9,16 +9,17 @@ does not contact external services.
 
 ## Status
 
-**Phase 9** — system telemetry implemented:
+**Phase 10** — process-tree monitoring implemented:
 
-- Host resource sampling every 1s (CPU%, RAM used, process RSS, swap,
-  process/thread counts) via Win32 API on Windows
-- `system_metrics.csv` per run; summary now reports peak/avg CPU and RAM
-- Known gaps (disk/network counters, POSIX collector) documented in
-  `docs/methodology.md`
+- OS process table snapshots every 5s (PID, PPID, name, CPU, RSS, threads)
+  via Win32 API, persisted to `process_metrics.csv`
+- Captures the controller → Chromium → renderer/GPU/utility topology so
+  logical tasks are distinguishable from OS processes
+- Per-process CPU normalized to the system denominator; elevated/system
+  processes flagged with `access_denied`
 
-Phases 3-8 (http, headed, headless, persistent-contexts, cdp, hybrid) remain
-implemented. CEF (G) is not yet implemented.
+Phases 3-9 (http, headed, headless, persistent-contexts, cdp, hybrid,
+telemetry) remain implemented. CEF (G) is not yet implemented.
 
 ## Quick start
 

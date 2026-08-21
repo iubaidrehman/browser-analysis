@@ -18,6 +18,7 @@ import (
 	"bcrl/internal/httpworker"
 	"bcrl/internal/hybrid"
 	"bcrl/internal/metrics"
+	"bcrl/internal/process"
 	"bcrl/internal/results"
 	"bcrl/internal/scheduler"
 	"bcrl/internal/workflow"
@@ -186,6 +187,12 @@ func Run(ctx context.Context, opts Options) (*results.Summary, error) {
 	defer sampleCancel()
 	samplerDone := sampler.Run(sampleCtx)
 
+	// Process-tree telemetry: snapshot the OS process table every 5s.
+	procMon := process.NewMonitor(5 * time.Second)
+	procCtx, procCancel := context.WithCancel(runCtx)
+	defer procCancel()
+	procDone := procMon.Run(procCtx)
+
 	// The measurement window starts after warmup. The driver handles the full
 	// window; warmup/cooldown are accounted in the metadata.
 	err = driver.Run(runCtx, scheduler.RunConfig{
@@ -197,9 +204,11 @@ func Run(ctx context.Context, opts Options) (*results.Summary, error) {
 		Cooldown:    time.Duration(cfg.Timing.CooldownSeconds) * time.Second,
 	})
 
-	// Stop the sampler and wait for it to fully drain before writing.
+	// Stop the sampler and process monitor, waiting for both to drain.
 	sampleCancel()
 	samplerDone()
+	procCancel()
+	procDone()
 
 	// On cancellation, persist partial results and report a cancellation so
 	// the CLI can exit nonzero (spec section 30).
@@ -220,6 +229,11 @@ func Run(ctx context.Context, opts Options) (*results.Summary, error) {
 		log.Warn("system metrics write failed", "err", werr)
 	}
 	peakCPU, avgCPU, peakRAM, avgRAM := sampler.Aggregates()
+
+	// Persist process-tree telemetry.
+	if werr := procMon.WriteCSV(dir); werr != nil {
+		log.Warn("process metrics write failed", "err", werr)
+	}
 
 	// Build and persist the summary.
 	summary := results.BuildSummary(rec, cfg, opts.Workflow.Name, runID)
