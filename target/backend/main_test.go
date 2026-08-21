@@ -50,7 +50,7 @@ func doReq(t *testing.T, a *app, method, path string, body any) *httptest.Respon
 func TestSessionLifecycle(t *testing.T) {
 	a := newTestApp(t)
 
-	rec := doReq(t, a, http.MethodGet, "/api/session", nil)
+	rec := doReq(t, a, http.MethodPost, "/api/session", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("create session: got %d", rec.Code)
 	}
@@ -88,7 +88,7 @@ func TestProducts(t *testing.T) {
 func TestCheckoutFlow(t *testing.T) {
 	a := newTestApp(t)
 
-	rec := doReq(t, a, http.MethodGet, "/api/session", nil)
+	rec := doReq(t, a, http.MethodPost, "/api/session", nil)
 	var sess sessionResponse
 	_ = json.Unmarshal(rec.Body.Bytes(), &sess)
 
@@ -136,7 +136,7 @@ func TestCheckoutFlow(t *testing.T) {
 
 func TestCartEmptyCheckoutRejected(t *testing.T) {
 	a := newTestApp(t)
-	rec := doReq(t, a, http.MethodGet, "/api/session", nil)
+	rec := doReq(t, a, http.MethodPost, "/api/session", nil)
 	var sess sessionResponse
 	_ = json.Unmarshal(rec.Body.Bytes(), &sess)
 

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -11,6 +12,8 @@ import (
 
 type store struct {
 	db *sql.DB
+	// idCounter generates unique ids across concurrent goroutines.
+	idCounter uint64
 }
 
 type session struct {
@@ -50,6 +53,10 @@ func openStore(path string) (*store, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A single connection guarantees SQLite never sees concurrent writers;
+	// the store-level writeMu already serializes, and this prevents the
+	// driver from opening additional connections that would hit SQLITE_BUSY.
+	db.SetMaxOpenConns(1)
 	if err := db.Ping(); err != nil {
 		return nil, err
 	}
@@ -133,8 +140,14 @@ func (s *store) seed() error {
 	return nil
 }
 
+// uniqueID returns a globally unique identifier safe for concurrent use.
+func (s *store) uniqueID(prefix string) string {
+	n := atomic.AddUint64(&s.idCounter, 1)
+	return fmt.Sprintf("%s-%d-%d", prefix, time.Now().UnixNano(), n)
+}
+
 func (s *store) CreateSession(ttl time.Duration) (session, error) {
-	id := fmt.Sprintf("sess-%d", time.Now().UnixNano())
+	id := s.uniqueID("sess")
 	now := time.Now().UTC()
 	exp := now.Add(ttl)
 	_, err := s.db.Exec(`INSERT INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)`, id, now.Format(time.RFC3339), exp.Format(time.RFC3339))
@@ -221,7 +234,7 @@ func (s *store) CreateOrder(sessionID string, items []cartItem) (order, error) {
 	}
 	defer tx.Rollback()
 
-	id := fmt.Sprintf("ord-%d", time.Now().UnixNano())
+	id := s.uniqueID("ord")
 	now := time.Now().UTC()
 	var total float64
 	for _, it := range items {

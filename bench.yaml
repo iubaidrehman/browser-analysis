@@ -1,0 +1,29 @@
+# BCRL benchmark configuration (spec section 24).
+scenario: http
+
+concurrency:
+  logical_tasks: 10
+  browser_worker_limit: 5
+  http_worker_limit: 10
+
+browser:
+  engine: chromium
+  headless: true
+  reuse_browser: false
+
+contexts:
+  count: 10
+
+workflow:
+  name: complex
+
+timing:
+  warmup_seconds: 2
+  measurement_seconds: 10
+  cooldown_seconds: 2
+
+target:
+  base_url: http://localhost:8080
+
+telemetry:
+  interval_seconds: 1

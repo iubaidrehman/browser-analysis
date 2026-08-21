@@ -9,13 +9,16 @@ does not contact external services.
 
 ## Status
 
-**Phase 2** — synthetic target application:
+**Phase 3** — HTTP benchmark (scenario E) implemented:
 
-- React + TypeScript + Vite SPA with the full route set and storage layers
-- Go backend with REST API, WebSocket events, and SQLite
-- Docker Compose for frontend, backend, and optional observability
+- Four deterministic workflows (minimal, SPA, stateful, complex) executed via
+  Go HTTP clients against the target application
+- Bounded worker pool (physical concurrency decoupled from logical concurrency)
+- Experiment modes: fixed, ramp, step, steady, spike
+- Raw result collection with `results/raw/<run-id>/` and statistical summaries
+- CLI: `bench run`, `bench quick`, `bench summarize`, `bench status`
 
-Benchmark scenarios (Phases 3+) are not yet implemented.
+Browser scenarios (Phases 4+) are not yet implemented.
 
 ## Quick start
 
@@ -38,6 +41,30 @@ npm run dev
 
 Open http://localhost:5173 — the SPA signs itself into a synthetic session,
 and the footer shows live WebSocket events.
+
+### Running a benchmark
+
+With the backend running, execute the quick benchmark matrix (concurrency
+1/10/50/100, complex workflow):
+
+```sh
+go run ./cmd/bench quick --config bench.yaml
+```
+
+Or a single run:
+
+```sh
+go run ./cmd/bench run --config bench.yaml --concurrency 50 --duration 10
+```
+
+Summarize results:
+
+```sh
+go run ./cmd/bench summarize
+```
+
+On Windows, run the backend as a compiled binary (`go build -o backend.exe .`)
+rather than `go run`, which can be flaky under benchmark load.
 
 ### Docker
 

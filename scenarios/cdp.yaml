@@ -1,0 +1,19 @@
+scenario: cdp
+
+concurrency:
+  logical_tasks: 5
+  browser_worker_limit: 5
+  http_worker_limit: 5
+
+browser:
+  engine: chromium
+  headless: true
+  reuse_browser: true
+
+workflow:
+  name: complex
+
+timing:
+  warmup_seconds: 2
+  measurement_seconds: 10
+  cooldown_seconds: 2

@@ -95,8 +95,8 @@ type app struct {
 func (a *app) routes() {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /api/session", a.handleSession)
 	mux.HandleFunc("POST /api/session", a.handleSession)
+	mux.HandleFunc("GET /api/session", a.handleSessionGet)
 	mux.HandleFunc("GET /api/products", a.handleProducts)
 	mux.HandleFunc("GET /api/products/{id}", a.handleProduct)
 	mux.HandleFunc("POST /api/cart", a.handleCartAdd)
@@ -104,8 +104,17 @@ func (a *app) routes() {
 	mux.HandleFunc("POST /api/checkout", a.handleCheckout)
 	mux.HandleFunc("GET /api/order/{id}", a.handleOrder)
 	mux.HandleFunc("GET /ws/events", a.handleWS)
+	mux.HandleFunc("/", a.handleIndex)
 
 	a.mux = withMiddleware(mux, a)
+}
+
+// handleIndex serves a minimal HTML document so HTTP-only workers can emulate
+// a page navigation without depending on the frontend being up.
+func (a *app) handleIndex(w http.ResponseWriter, r *http.Request) {
+	a.syntheticDelay()
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write([]byte("<!doctype html><html><head><title>BCRL Target</title></head><body><h1>BCRL Synthetic Target</h1></body></html>"))
 }
 
 // ---- shared helpers ----
@@ -159,22 +168,32 @@ type sessionResponse struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
+// handleSessionGet resumes an existing session if the id query parameter is
+// present; without one it is a read-only 404 so GET stays side-effect free.
+func (a *app) handleSessionGet(w http.ResponseWriter, r *http.Request) {
+	a.syntheticDelay()
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing session id"})
+		return
+	}
+	s, err := a.store.GetSession(id)
+	if err != nil || time.Now().After(s.ExpiresAt) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, sessionResponse{SessionID: s.ID, CreatedAt: s.CreatedAt, ExpiresAt: s.ExpiresAt})
+}
+
 func (a *app) handleSession(w http.ResponseWriter, r *http.Request) {
 	a.syntheticDelay()
 
-	id := r.URL.Query().Get("id")
 	ttl := time.Duration(a.cfg.sessionTTLSeconds) * time.Second
 	now := time.Now().UTC()
-	if id != "" {
-		// Resume an existing session, if still valid.
-		if s, err := a.store.GetSession(id); err == nil && time.Now().Before(s.ExpiresAt) {
-			writeJSON(w, http.StatusOK, sessionResponse{SessionID: s.ID, CreatedAt: s.CreatedAt, ExpiresAt: s.ExpiresAt})
-			return
-		}
-	}
 
 	s, err := a.store.CreateSession(ttl)
 	if err != nil {
+		log.Printf("session create error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
@@ -256,6 +275,7 @@ func (a *app) handleCheckout(w http.ResponseWriter, r *http.Request) {
 
 	order, err := a.store.CreateOrder(req.SessionID, items)
 	if err != nil {
+		log.Printf("checkout error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}

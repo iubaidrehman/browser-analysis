@@ -1,0 +1,175 @@
+// Package metrics records per-run latency and task counters.
+package metrics
+
+import (
+	"sync"
+	"time"
+)
+
+// Recorder is a thread-safe sink for benchmark measurements.
+type Recorder struct {
+	mu sync.Mutex
+
+	workflowLatencies []float64 // seconds
+	stepLatencies     []float64 // seconds
+	requestLatencies  []float64 // seconds
+
+	tasksCreated  int
+	tasksQueued   int
+	tasksActive   int
+	tasksComplete int
+	tasksFailed   int
+	tasksCanceled int
+	retries       int
+
+	requestsOK     int
+	requestsFailed int
+	wsEvents       int
+	workflowFailed int
+
+	failures map[string]int
+}
+
+// NewRecorder returns an empty recorder.
+func NewRecorder() *Recorder {
+	return &Recorder{failures: make(map[string]int)}
+}
+
+// RecordFailure counts one failure of the given reason.
+func (r *Recorder) RecordFailure(reason string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.failures[reason]++
+}
+
+// Failures returns a copy of the failure-reason counters.
+func (r *Recorder) Failures() map[string]int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make(map[string]int, len(r.failures))
+	for k, v := range r.failures {
+		out[k] = v
+	}
+	return out
+}
+
+// Reset clears all recorded data. Called at the warmup/measurement boundary
+// so warmup samples never enter the primary measurements.
+func (r *Recorder) Reset() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.workflowLatencies = nil
+	r.stepLatencies = nil
+	r.requestLatencies = nil
+	r.tasksCreated = 0
+	r.tasksQueued = 0
+	r.tasksActive = 0
+	r.tasksComplete = 0
+	r.tasksFailed = 0
+	r.tasksCanceled = 0
+	r.retries = 0
+	r.requestsOK = 0
+	r.requestsFailed = 0
+	r.wsEvents = 0
+	r.workflowFailed = 0
+	r.failures = make(map[string]int)
+}
+
+// RecordWorkflow adds a completed workflow duration (seconds).
+func (r *Recorder) RecordWorkflow(d time.Duration) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.workflowLatencies = append(r.workflowLatencies, d.Seconds())
+}
+
+// RecordStep adds a single step duration (seconds).
+func (r *Recorder) RecordStep(d time.Duration) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.stepLatencies = append(r.stepLatencies, d.Seconds())
+}
+
+// RecordRequest adds an API request duration (seconds).
+func (r *Recorder) RecordRequest(d time.Duration, ok bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.requestLatencies = append(r.requestLatencies, d.Seconds())
+	if ok {
+		r.requestsOK++
+	} else {
+		r.requestsFailed++
+	}
+}
+
+// Task lifecycle counters.
+func (r *Recorder) TaskCreated()   { r.bump(func() { r.tasksCreated++ }) }
+func (r *Recorder) TaskQueued()    { r.bump(func() { r.tasksQueued++ }) }
+func (r *Recorder) TaskActive()    { r.bump(func() { r.tasksActive++ }) }
+func (r *Recorder) TaskComplete()  { r.bump(func() { r.tasksComplete++; r.tasksActive-- }) }
+func (r *Recorder) TaskFailed()    { r.bump(func() { r.tasksFailed++; r.tasksActive-- }) }
+func (r *Recorder) TaskCancelled() { r.bump(func() { r.tasksCanceled++ }) }
+func (r *Recorder) Retry()         { r.bump(func() { r.retries++ }) }
+
+func (r *Recorder) bump(f func()) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	f()
+}
+
+// SetActive overrides the active count (used on task start).
+func (r *Recorder) SetActive(n int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.tasksActive = n
+}
+
+// WSEvent records one WebSocket event delivered.
+func (r *Recorder) WSEvent() { r.bump(func() { r.wsEvents++ }) }
+
+// WorkflowFailed records a failed workflow.
+func (r *Recorder) WorkflowFailed() { r.bump(func() { r.workflowFailed++ }) }
+
+// Latencies returns copies of the latency series.
+func (r *Recorder) Latencies() (workflow, step, request []float64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	workflow = append([]float64(nil), r.workflowLatencies...)
+	step = append([]float64(nil), r.stepLatencies...)
+	request = append([]float64(nil), r.requestLatencies...)
+	return
+}
+
+// Counters returns the current task/request counters.
+type Counters struct {
+	Created  int `json:"tasks_created"`
+	Queued   int `json:"tasks_queued"`
+	Active   int `json:"tasks_active"`
+	Complete int `json:"tasks_completed"`
+	Failed   int `json:"tasks_failed"`
+	Canceled int `json:"tasks_cancelled"`
+	Retries  int `json:"retries"`
+
+	RequestsOK     int `json:"requests_ok"`
+	RequestsFailed int `json:"requests_failed"`
+	WSEvents       int `json:"ws_events"`
+	WorkflowFailed int `json:"workflow_failures"`
+}
+
+// Snapshot returns a copy of the counters.
+func (r *Recorder) Snapshot() Counters {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return Counters{
+		Created:        r.tasksCreated,
+		Queued:         r.tasksQueued,
+		Active:         r.tasksActive,
+		Complete:       r.tasksComplete,
+		Failed:         r.tasksFailed,
+		Canceled:       r.tasksCanceled,
+		Retries:        r.retries,
+		RequestsOK:     r.requestsOK,
+		RequestsFailed: r.requestsFailed,
+		WSEvents:       r.wsEvents,
+		WorkflowFailed: r.workflowFailed,
+	}
+}
