@@ -79,7 +79,7 @@ func NewPool(n int, rec *metrics.Recorder) (*Pool, error) {
 	}
 	for i := 0; i < n; i++ {
 		p.wg.Add(1)
-		go p.workerLoop()
+		go p.workerLoop(i)
 	}
 	return p, nil
 }
@@ -90,7 +90,7 @@ func (p *Pool) SetRunContext(ctx context.Context) {
 	p.runCtx = ctx
 }
 
-func (p *Pool) workerLoop() {
+func (p *Pool) workerLoop(i int) {
 	defer p.wg.Done()
 	for t := range p.jobs {
 		t.Started = time.Now()
@@ -103,7 +103,7 @@ func (p *Pool) workerLoop() {
 			base = context.Background()
 		}
 		ctx, cancel := context.WithTimeout(base, 120*time.Second)
-		err := p.workers[0].Run(ctx, t)
+		err := p.workers[i].Run(ctx, t)
 		cancel()
 		t.Finished = time.Now()
 		if err != nil {

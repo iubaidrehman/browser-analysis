@@ -14,6 +14,7 @@ type fakeWorker struct {
 	mu      sync.Mutex
 	runs    int
 	sleepMs int
+	id      int // set per worker to verify each executes tasks
 }
 
 func (f *fakeWorker) Run(_ context.Context, t *Task) error {
@@ -29,6 +30,50 @@ func (f *fakeWorker) Run(_ context.Context, t *Task) error {
 
 func (f *fakeWorker) Close() error { return nil }
 
+// TestPoolDistributesAcrossAllWorkers verifies that a multi-worker pool uses
+// every worker — this would have caught a workers[0]-only dispatch bug.
+func TestPoolDistributesAcrossAllWorkers(t *testing.T) {
+	rec := metrics.NewRecorder()
+	pool, err := NewPool(4, rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	workers := make([]Worker, 4)
+	fakes := make([]*fakeWorker, 4)
+	for i := range fakes {
+		fakes[i] = &fakeWorker{id: i}
+		workers[i] = fakes[i]
+	}
+	pool.SetWorkers(workers)
+
+	total := 40
+	var wg sync.WaitGroup
+	wg.Add(total)
+	for i := 0; i < total; i++ {
+		task := &Task{ID: i, done: make(chan struct{})}
+		go func(task *Task) {
+			defer wg.Done()
+			if !pool.Submit(task) {
+				t.Error("submit rejected")
+				return
+			}
+			<-task.Done()
+		}(task)
+	}
+	wg.Wait()
+	pool.Close()
+
+	for i, f := range fakes {
+		f.mu.Lock()
+		runs := f.runs
+		f.mu.Unlock()
+		if runs == 0 {
+			t.Errorf("worker %d never executed a task", i)
+		}
+	}
+}
+
 func TestPoolRunsTasksAndCounts(t *testing.T) {
 	rec := metrics.NewRecorder()
 	pool, err := NewPool(4, rec)
@@ -36,8 +81,11 @@ func TestPoolRunsTasksAndCounts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	w := &fakeWorker{sleepMs: 10}
-	pool.SetWorkers([]Worker{w})
+	workers := make([]Worker, 4)
+	for i := range workers {
+		workers[i] = &fakeWorker{sleepMs: 10}
+	}
+	pool.SetWorkers(workers)
 
 	total := 20
 	var wg sync.WaitGroup
@@ -67,12 +115,6 @@ func TestPoolRunsTasksAndCounts(t *testing.T) {
 
 	pool.Close()
 
-	w.mu.Lock()
-	runs := w.runs
-	w.mu.Unlock()
-	if runs != total {
-		t.Fatalf("worker ran %d tasks, want %d", runs, total)
-	}
 	c := rec.Snapshot()
 	if c.Complete != total {
 		t.Fatalf("completed = %d, want %d", c.Complete, total)

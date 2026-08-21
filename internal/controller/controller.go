@@ -13,6 +13,7 @@ import (
 
 	"bcrl/internal/browser"
 	"bcrl/internal/config"
+	"bcrl/internal/contexts"
 	"bcrl/internal/httpworker"
 	"bcrl/internal/metrics"
 	"bcrl/internal/results"
@@ -44,7 +45,8 @@ func Run(ctx context.Context, opts Options) (*results.Summary, error) {
 	// the resource limit; tasks are the work (spec section 25). Browser
 	// scenarios use browser_worker_limit; HTTP uses http_worker_limit.
 	workerLimit := cfg.Concurrency.HTTPWorkerLimit
-	if cfg.Scenario == "headed" || cfg.Scenario == "headless" {
+	switch cfg.Scenario {
+	case "headed", "headless", "persistent-contexts":
 		workerLimit = cfg.Concurrency.BrowserWorkerLimit
 	}
 	pool, err := scheduler.NewPool(workerLimit, rec)
@@ -79,6 +81,26 @@ func Run(ctx context.Context, opts Options) (*results.Summary, error) {
 		headless := cfg.Scenario == "headless"
 		for i := 0; i < workerLimit; i++ {
 			workers = append(workers, browser.NewWorker(manager, headless, cfg.Target.BaseURL, rec))
+		}
+
+	case "persistent-contexts":
+		manager, err := browser.NewManager()
+		if err != nil {
+			return nil, fmt.Errorf("browser manager: %w", err)
+		}
+		defer manager.Close()
+		// Shard the requested contexts across workers: each worker's pool
+		// holds a share, so 1000 contexts spread across the physical pool.
+		perWorker := cfg.Contexts.Count / workerLimit
+		if perWorker < 1 {
+			perWorker = 1
+		}
+		for i := 0; i < workerLimit; i++ {
+			pool, err := contexts.NewPool(manager, cfg.Browser.Headless, perWorker, rec)
+			if err != nil {
+				return nil, fmt.Errorf("context pool %d: %w", i, err)
+			}
+			workers = append(workers, contexts.NewWorker(pool, cfg.Target.BaseURL, rec))
 		}
 
 	default:

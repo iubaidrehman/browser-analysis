@@ -19,8 +19,11 @@ func TestDriverFixedClosedLoop(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	w := &fakeWorker{sleepMs: 20}
-	pool.SetWorkers([]Worker{w})
+	workers := make([]Worker, 4)
+	for i := range workers {
+		workers[i] = &fakeWorker{sleepMs: 20}
+	}
+	pool.SetWorkers(workers)
 	pool.SetRunContext(context.Background())
 
 	log := logging.Default()
@@ -59,8 +62,11 @@ func TestDriverCancellation(t *testing.T) {
 	}
 	defer pool.Close()
 
-	w := &fakeWorker{sleepMs: 50}
-	pool.SetWorkers([]Worker{w})
+	workers := make([]Worker, 2)
+	for i := range workers {
+		workers[i] = &fakeWorker{sleepMs: 50}
+	}
+	pool.SetWorkers(workers)
 
 	log := logging.Default()
 	driver := NewDriver(pool, rec, log)

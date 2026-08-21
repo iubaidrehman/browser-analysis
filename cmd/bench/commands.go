@@ -36,8 +36,8 @@ func cmdRun(args []string) error {
 }
 
 // cmdQuick runs the quick benchmark matrix (spec section 21):
-// concurrency 1/10/50/100 for the http scenario. Browser scenarios are added
-// in later phases.
+// scenarios http, headless, persistent-contexts, headed at concurrency
+// 1/10/50/100.
 func cmdQuick(args []string) error {
 	opts, err := runConfigFromFlags(args)
 	if err != nil {
@@ -50,24 +50,35 @@ func cmdQuick(args []string) error {
 	cfg.Timing.MeasurementSeconds = 5
 	cfg.Timing.CooldownSeconds = 1
 
+	scenarios := []string{"http", "headless", "persistent-contexts", "headed"}
 	levels := []int{1, 10, 50, 100}
 	log := logging.Default()
-	for _, lvl := range levels {
-		cfg.Concurrency.LogicalTasks = lvl
-		log.Info("quick benchmark", "scenario", cfg.Scenario, "concurrency", lvl)
-		summary, err := controller.Run(context.Background(), controller.Options{
-			Config:     cfg,
-			Workflow:   opts.Workflow,
-			Mode:       "fixed",
-			ResultsDir: opts.ResultsDir,
-			Repetition: opts.Repetition,
-			Logger:     log,
-		})
-		if err != nil {
-			return err
+
+	// Cap browser worker limit so quick runs don't launch 100 browsers at
+	// concurrency 100; physical concurrency stays bounded per spec §25.
+	if cfg.Concurrency.BrowserWorkerLimit > 10 {
+		cfg.Concurrency.BrowserWorkerLimit = 10
+	}
+
+	for _, scenario := range scenarios {
+		for _, lvl := range levels {
+			cfg.Scenario = scenario
+			cfg.Concurrency.LogicalTasks = lvl
+			log.Info("quick benchmark", "scenario", scenario, "concurrency", lvl)
+			summary, err := controller.Run(context.Background(), controller.Options{
+				Config:     cfg,
+				Workflow:   opts.Workflow,
+				Mode:       "fixed",
+				ResultsDir: opts.ResultsDir,
+				Repetition: opts.Repetition,
+				Logger:     log,
+			})
+			if err != nil {
+				return err
+			}
+			fmt.Printf("quick %-20s concurrency=%-3d throughput=%.1f/s completed=%d failed=%d p95=%.3fs\n",
+				scenario, lvl, summary.Throughput, summary.Completed, summary.Failed, summary.Latency.P95)
 		}
-		fmt.Printf("quick %-4s concurrency=%-3d throughput=%.1f/s completed=%d failed=%d p95=%.3fs\n",
-			cfg.Scenario, lvl, summary.Throughput, summary.Completed, summary.Failed, summary.Latency.P95)
 	}
 	return nil
 }

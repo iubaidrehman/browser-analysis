@@ -9,18 +9,18 @@ does not contact external services.
 
 ## Status
 
-**Phase 4** — headed + headless Chromium benchmarks (scenarios A/B) implemented:
+**Phase 6** — persistent browser + contexts benchmark (scenario C) implemented:
 
-- Four deterministic workflows executed against real Playwright pages, with
-  localStorage/IndexedDB/execute-JS/WebSocket exercised in-page
-- One independent Chromium process per logical worker (headed or headless),
-  browser launch latency measured separately and persisted to
-  `browser_metrics.csv`
-- Scenario dispatch in the controller; physical worker count uses
-  `browser_worker_limit` for browser scenarios
+- One persistent Chromium per worker (sharded across `browser_worker_limit`),
+  with isolated browser contexts (cookies/localStorage/IndexedDB) acquired
+  and released per logical task
+- Context creation latency measured separately and persisted alongside
+  browser launch latency in `browser_metrics.csv`
+- `bench quick` now runs the full spec matrix: http, headless,
+  persistent-contexts, headed at concurrency 1/10/50/100
 
-Phase 3's HTTP benchmark remains implemented. Persistent contexts (C), CDP
-(D), hybrid (F), and CEF (G) are not yet implemented.
+Phases 3-5 (http, headed, headless) remain implemented. CDP (D), hybrid (F),
+and CEF (G) are not yet implemented.
 
 ## Quick start
 

@@ -14,6 +14,7 @@ type Recorder struct {
 	stepLatencies     []float64 // seconds
 	requestLatencies  []float64 // seconds
 	browserLaunches   []float64 // seconds (scenarios A/B launch latency)
+	contextCreations  []float64 // seconds (scenario C context creation)
 
 	tasksCreated  int
 	tasksQueued   int
@@ -54,15 +55,16 @@ func (r *Recorder) Failures() map[string]int {
 	return out
 }
 
-// Reset clears all recorded data. Called at the warmup/measurement boundary
-// so warmup samples never enter the primary measurements.
+// Reset clears per-measurement recorded data at the warmup/measurement
+// boundary. Setup-phase series (browser launches, context creations) are
+// preserved because they are recorded once before warmup and never contain
+// warmup samples.
 func (r *Recorder) Reset() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.workflowLatencies = nil
 	r.stepLatencies = nil
 	r.requestLatencies = nil
-	r.browserLaunches = nil
 	r.tasksCreated = 0
 	r.tasksQueued = 0
 	r.tasksActive = 0
@@ -82,6 +84,13 @@ func (r *Recorder) RecordBrowserLaunch(d time.Duration) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.browserLaunches = append(r.browserLaunches, d.Seconds())
+}
+
+// RecordContextCreation adds a browser context creation duration (seconds).
+func (r *Recorder) RecordContextCreation(d time.Duration) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.contextCreations = append(r.contextCreations, d.Seconds())
 }
 
 // RecordWorkflow adds a completed workflow duration (seconds).
@@ -139,13 +148,14 @@ func (r *Recorder) WSEvent() { r.bump(func() { r.wsEvents++ }) }
 func (r *Recorder) WorkflowFailed() { r.bump(func() { r.workflowFailed++ }) }
 
 // Latencies returns copies of the latency series.
-func (r *Recorder) Latencies() (workflow, step, request, browserLaunch []float64) {
+func (r *Recorder) Latencies() (workflow, step, request, browserLaunch, contextCreation []float64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	workflow = append([]float64(nil), r.workflowLatencies...)
 	step = append([]float64(nil), r.stepLatencies...)
 	request = append([]float64(nil), r.requestLatencies...)
 	browserLaunch = append([]float64(nil), r.browserLaunches...)
+	contextCreation = append([]float64(nil), r.contextCreations...)
 	return
 }
 
