@@ -37,6 +37,8 @@ func main() {
 		err = cmdSweep(os.Args[2:])
 	case "summarize":
 		err = cmdSummarize(os.Args[2:])
+	case "report":
+		err = cmdReport(os.Args[2:])
 	case "status":
 		err = cmdStatus()
 	case "cleanup":
@@ -63,6 +65,7 @@ func usage() {
 	fmt.Println("  quick            run the quick benchmark matrix")
 	fmt.Println("  sweep            run a scenario/concurrency matrix")
 	fmt.Println("  summarize        summarize raw results")
+	fmt.Println("  report           write a markdown report from sweep results")
 	fmt.Println("  status           show current benchmark state")
 	fmt.Println("  cleanup          remove leftover state")
 }

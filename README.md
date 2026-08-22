@@ -22,6 +22,41 @@ as not-implemented — see `docs/cef.md`. Phases 1-12 cover the repository,
 synthetic target, http/headed/headless/persistent-contexts/cdp/hybrid
 scenarios, telemetry, process-tree monitoring, and concurrency sweeps.
 
+## Dependencies
+
+| Tool | Version | Purpose |
+|---|---|---|
+| Go | ≥ 1.26 | controller, backend |
+| Node | ≥ 20 | frontend build, SPA runtime |
+| Playwright Chromium | pinned by driver | browser scenarios |
+| Docker (optional) | any recent | containerized target + telemetry |
+| git | any | reproducibility metadata |
+
+Install the Playwright browser:
+
+```sh
+go run github.com/mxschmitt/playwright-go/cmd/playwright install chromium
+```
+
+## Expected behavior and outcome
+
+- Each `bench run` produces a run directory under `results/raw/` with
+  metadata, summary, and raw CSV series; the console prints throughput,
+  completed/failed tasks, and latency percentiles.
+- `bench sweep` compares each concurrency level to the lowest-level baseline
+  and flags **SATURATED** cells that cross degradation thresholds — these are
+  research findings, not errors.
+- `bench summarize` and `bench report` render tables/markdown from the raw
+  data. With no runs, they print "No measurement available." — the system
+  never fabricates results.
+- The measurement data answers the research question: how startup latency,
+  memory, CPU, throughput, P95/P99 latency, failure rate, and scalability
+  differ across execution architectures (http, headed, headless,
+  persistent-contexts, cdp, hybrid) at concurrency 1–1000.
+- Use cases: engineering research on browser-automation architecture
+  trade-offs, capacity planning, and comparison of process-per-task vs
+  context-reuse vs CDP-control strategies under load.
+
 ## Quick start
 
 ### Local development
@@ -129,9 +164,18 @@ cd target/frontend && npm run build
 - `target/frontend` — synthetic React SPA
 - `target/backend` — synthetic Go API + WebSocket + SQLite
 - `target/database` — database schema/notes
-- `scenarios/` — scenario YAML presets (planned)
-- `docs/` — architecture and methodology documentation
+- `scenarios/` — scenario YAML presets
+- `scripts/` — environment-check, cleanup, run-sweep helpers
+- `docs/` — architecture, methodology, benchmark protocol, reproducibility, CEF
 - `telemetry/` — Prometheus configuration
+
+## Documentation
+
+- `docs/architecture.md` — component and data-flow overview
+- `docs/methodology.md` — measurement model and known limitations
+- `docs/benchmark-protocol.md` — the reproducible run procedure
+- `docs/reproducibility.md` — pinning and clean-machine reproduction
+- `docs/cef.md` — why scenario G is not implemented
 
 ## License
 
