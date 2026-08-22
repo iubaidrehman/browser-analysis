@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -577,6 +578,124 @@ func loadResource(resultsDir string, runID results.RunID) results.ResourceSummar
 	return rs
 }
 
+// runAgg is one run's summary plus its resource accounting, used for the
+// holistic aggregation.
+type runAgg struct {
+	ID       string
+	Scenario string
+	Concurrency int
+	Summary  results.Summary
+	Resource results.ResourceSummary
+}
+
+// collectRuns loads every run directory's summary + resource summary.
+func collectRuns(resultsDir string) []runAgg {
+	rawDir := filepath.Join(resultsDir, "raw")
+	entries, err := os.ReadDir(rawDir)
+	if err != nil {
+		return nil
+	}
+	var out []runAgg
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		var s results.Summary
+		if err := readJSONFile(filepath.Join(rawDir, e.Name(), "summary.json"), &s); err != nil {
+			continue
+		}
+		out = append(out, runAgg{
+			ID: e.Name(), Scenario: s.Scenario, Concurrency: s.Concurrency,
+			Summary: s, Resource: loadResource(resultsDir, results.RunID(e.Name())),
+		})
+	}
+	return out
+}
+
+// writeHolisticSummary renders per-scenario scaling tables (averaged over
+// reps) and a resource overview into the report.
+func writeHolisticSummary(b *strings.Builder, runs []runEntry, resultsDir string) {
+	all := collectRuns(resultsDir)
+	if len(all) == 0 {
+		b.WriteString("No measurement available.\n\n")
+		return
+	}
+
+	// Group runs by (scenario, concurrency) and average over reps.
+	type cell struct {
+		n       int
+		tput    float64
+		p50     float64
+		p95     float64
+		p99     float64
+		totalRSS float64
+		browserRSS float64
+		procs   float64
+	}
+	type scenarioMap map[int]*cell
+	groups := map[string]scenarioMap{}
+
+	for _, r := range all {
+		sm := groups[r.Scenario]
+		if sm == nil {
+			sm = scenarioMap{}
+			groups[r.Scenario] = sm
+		}
+		c := sm[r.Concurrency]
+		if c == nil {
+			c = &cell{}
+			sm[r.Concurrency] = c
+		}
+		c.n++
+		c.tput += r.Summary.Throughput
+		c.p50 += r.Summary.Latency.Median
+		c.p95 += r.Summary.Latency.P95
+		c.p99 += r.Summary.Latency.P99
+		c.totalRSS += float64(r.Resource.TotalRSS.Mean)
+		c.browserRSS += float64(r.Resource.BrowserRSS.Mean)
+		c.procs += float64(r.Resource.TotalProcesses.Mean)
+	}
+
+	// Print one scaling table per scenario, concurrency ascending.
+	var concs []int
+	for scenario, sm := range groups {
+		b.WriteString("### " + scenario + "\n\n")
+		b.WriteString("| concurrency | reps | throughput/s | p50 (s) | p95 (s) | p99 (s) | total rss (MB) | browser rss (MB) | procs |\n")
+		b.WriteString("|---|---|---|---|---|---|---|---|---|\n")
+		concs = concs[:0]
+		for c := range sm {
+			concs = append(concs, c)
+		}
+		sort.Ints(concs)
+		for _, c := range concs {
+			cell := sm[c]
+			n := float64(cell.n)
+			b.WriteString(fmt.Sprintf("| %d | %d | %.1f | %.4f | %.4f | %.4f | %.0f | %.0f | %.0f |\n",
+				c, cell.n,
+				cell.tput/n,
+				cell.p50/n,
+				cell.p95/n,
+				cell.p99/n,
+				cell.totalRSS/n/1048576,
+				cell.browserRSS/n/1048576,
+				cell.procs/n))
+		}
+		b.WriteString("\n")
+	}
+
+	// Overall totals.
+	b.WriteString("### Overall\n\n")
+	totalRuns := len(all)
+	var sumTput, sumP95 float64
+	for _, r := range all {
+		sumTput += r.Summary.Throughput
+		sumP95 += r.Summary.Latency.P95
+	}
+	b.WriteString(fmt.Sprintf("Total runs: %d\n\n", totalRuns))
+	b.WriteString(fmt.Sprintf("Mean throughput across all runs: %.1f/s\n\n", sumTput/float64(totalRuns)))
+	b.WriteString(fmt.Sprintf("Mean p95 latency across all runs: %.4fs\n\n", sumP95/float64(totalRuns)))
+}
+
 // cmdReport writes a markdown report from the latest sweep evaluations and
 // run summaries (spec section 35).
 func cmdReport(args []string) error {
@@ -654,6 +773,11 @@ func cmdReport(args []string) error {
 	} else {
 		b.WriteString("No measurement available.\n\n")
 	}
+
+	// Holistic summary: aggregate across all runs by scenario and concurrency
+	// so the report reads as one resource/scaling analysis, not just a list.
+	b.WriteString("## Holistic Summary\n\n")
+	writeHolisticSummary(&b, runs, resultsDir)
 
 	// Note on interpretation.
 	b.WriteString("## Interpretation\n\n")
