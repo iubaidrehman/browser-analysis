@@ -48,6 +48,82 @@ type Collector struct {
 	lastIdle, lastKernel, lastUser uint64
 }
 
+// ProcessRSS returns the working set (RSS) of the current process in bytes.
+// Used to measure per-task memory deltas (the benchmark process's children,
+// including Chromium, appear in its working set).
+func ProcessRSS() uint64 {
+	var pmc processMemoryCounters
+	pmc.CB = uint32(unsafe.Sizeof(pmc))
+	r1, _, _ := procGetProcessMemoryInfo.Call(
+		uintptr(windows.CurrentProcess()),
+		uintptr(unsafe.Pointer(&pmc)),
+		uintptr(unsafe.Sizeof(pmc)),
+	)
+	if r1 == 0 {
+		return 0
+	}
+	return uint64(pmc.WorkingSetSize)
+}
+
+// TreeRSS returns the total working set of the process rooted at rootPID and
+// all of its descendants. Used to measure per-task memory including spawned
+// Chromium trees, which are separate processes not counted in the parent's
+// working set.
+func TreeRSS(rootPID uint32) uint64 {
+	h, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
+	if err != nil {
+		return 0
+	}
+	defer windows.CloseHandle(h)
+
+	type procInfo struct {
+		ppid uint32
+		rss  uint64
+	}
+	procs := make(map[uint32]procInfo, 512)
+	var pe windows.ProcessEntry32
+	pe.Size = uint32(unsafe.Sizeof(pe))
+	for err := windows.Process32First(h, &pe); err == nil; err = windows.Process32Next(h, &pe) {
+		procs[pe.ProcessID] = procInfo{ppid: pe.ParentProcessID, rss: processRSS(pe.ProcessID)}
+	}
+
+	// Sum the root and every process that descends from it.
+	total := procs[rootPID].rss
+	for _, info := range procs {
+		for cur := info.ppid; cur != 0; {
+			if cur == rootPID {
+				total += info.rss
+				break
+			}
+			parent, ok := procs[cur]
+			if !ok {
+				break
+			}
+			cur = parent.ppid
+		}
+	}
+	return total
+}
+
+func processRSS(pid uint32) uint64 {
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+	if err != nil {
+		return 0
+	}
+	defer windows.CloseHandle(h)
+	var pmc processMemoryCounters
+	pmc.CB = uint32(unsafe.Sizeof(pmc))
+	r1, _, _ := procGetProcessMemoryInfo.Call(
+		uintptr(h),
+		uintptr(unsafe.Pointer(&pmc)),
+		uintptr(unsafe.Sizeof(pmc)),
+	)
+	if r1 == 0 {
+		return 0
+	}
+	return uint64(pmc.WorkingSetSize)
+}
+
 // NewCollector returns a collector ready to sample.
 func NewCollector() *Collector {
 	return &Collector{}

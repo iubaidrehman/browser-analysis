@@ -29,6 +29,16 @@ Each workflow step records a duration. Step latencies are aggregated into the
 summary's latency distribution. Browser launch latency (scenarios A/B/C) and
 CDP connect latency (scenario D) are recorded as separate series.
 
+## Memory accounting
+
+`summary.json` reports `task_rss_bytes`: the per-task peak working-set delta,
+measured by polling the benchmark process tree (the controller plus spawned
+Chromium trees) at 100ms during each task and taking the peak minus the
+pre-task baseline. The raw per-task values are in `task_rss_metrics.csv`.
+Because the measurement spans the whole tree, concurrent tasks can overlap in
+the delta (a p95 that exceeds the per-task steady state); the mean is the
+more reliable per-task cost signal.
+
 ## Known limitations
 
 - **Disk and network counters are not yet collected on Windows** (they are

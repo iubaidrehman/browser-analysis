@@ -13,6 +13,12 @@ type Collector struct {
 // NewCollector returns a collector ready to sample.
 func NewCollector() *Collector { return &Collector{} }
 
+// ProcessRSS is unimplemented on POSIX.
+func ProcessRSS() uint64 { return 0 }
+
+// TreeRSS is unimplemented on POSIX.
+func TreeRSS(rootPID uint32) uint64 { return 0 }
+
 // Sample returns a host snapshot. The POSIX stub returns zeros.
 func (c *Collector) Sample() (Snapshot, error) {
 	now := time.Now()

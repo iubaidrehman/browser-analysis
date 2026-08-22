@@ -92,6 +92,7 @@ type Summary struct {
 	BrowserLaunch    stats.Summary   `json:"browser_launch"`
 	ContextCreation  stats.Summary   `json:"context_creation"`
 	CDPConnect       stats.Summary   `json:"cdp_connect"`
+	TaskRSSBytes     stats.Summary   `json:"task_rss_bytes"`
 	Escalations      int             `json:"escalations,omitempty"`
 	HTTPStepTotal    float64         `json:"http_step_total_seconds,omitempty"`
 	BrowserStepTotal float64         `json:"browser_step_total_seconds,omitempty"`
@@ -162,7 +163,34 @@ func WriteRun(resultsDir string, rec *metrics.Recorder, cfg config.Config, wf wo
 		return "", "", err
 	}
 
+	// task_rss_metrics.csv — per-task working-set deltas (bytes).
+	if err := writeRSSMetricsCSV(dir, rec); err != nil {
+		return "", "", err
+	}
+
 	return dir, runID, nil
+}
+
+// writeRSSMetricsCSV writes per-task RSS deltas, one row per task.
+func writeRSSMetricsCSV(dir string, rec *metrics.Recorder) error {
+	deltas := rec.RSSDeltas()
+	path := filepath.Join(dir, "task_rss_metrics.csv")
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	w := csv.NewWriter(f)
+	if err := w.Write([]string{"task_rss_delta_bytes"}); err != nil {
+		return err
+	}
+	for _, d := range deltas {
+		if err := w.Write([]string{strconv.FormatFloat(d, 'f', 0, 64)}); err != nil {
+			return err
+		}
+	}
+	w.Flush()
+	return w.Error()
 }
 
 // writeHybridCSV writes hybrid transport step durations, one row per step.
@@ -284,10 +312,12 @@ func workerCountFor(cfg config.Config) int {
 func BuildSummary(rec *metrics.Recorder, cfg config.Config, workflowName string, runID RunID) *Summary {
 	workflowLat, _, _, browserLaunchLat, contextCreationLat, cdpConnectLat := rec.Latencies()
 	httpSteps, browserSteps := rec.TransportLatencies()
+	rssDeltas := rec.RSSDeltas()
 	dist := stats.Summarize(workflowLat)
 	launchDist := stats.Summarize(browserLaunchLat)
 	contextDist := stats.Summarize(contextCreationLat)
 	cdpDist := stats.Summarize(cdpConnectLat)
+	rssDist := stats.Summarize(rssDeltas)
 
 	c := rec.Snapshot()
 	total := c.Created
@@ -313,6 +343,7 @@ func BuildSummary(rec *metrics.Recorder, cfg config.Config, workflowName string,
 		BrowserLaunch:  launchDist,
 		ContextCreation: contextDist,
 		CDPConnect:     cdpDist,
+		TaskRSSBytes:   rssDist,
 		Escalations:    c.Escalations,
 		HTTPStepTotal:  sum(httpSteps),
 		BrowserStepTotal: sum(browserSteps),

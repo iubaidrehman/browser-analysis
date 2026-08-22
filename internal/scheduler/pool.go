@@ -5,11 +5,13 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"bcrl/internal/metrics"
+	"bcrl/internal/system"
 	"bcrl/internal/workflow"
 )
 
@@ -92,9 +94,33 @@ func (p *Pool) SetRunContext(ctx context.Context) {
 
 func (p *Pool) workerLoop(i int) {
 	defer p.wg.Done()
+	selfPID := uint32(os.Getpid())
 	for t := range p.jobs {
 		t.Started = time.Now()
 		p.rec.TaskActive()
+		// Measure the peak working-set attributable to this task, summed over
+		// the whole process tree (the benchmark process plus spawned
+		// Chromium trees, which are separate processes). Poll during the task
+		// because browsers may be launched and closed within it.
+		rssBefore := system.TreeRSS(selfPID)
+		peakCh := make(chan uint64, 1)
+		stopPeak := make(chan struct{})
+		go func() {
+			peak := rssBefore
+			ticker := time.NewTicker(100 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-stopPeak:
+					peakCh <- peak
+					return
+				case <-ticker.C:
+					if r := system.TreeRSS(selfPID); r > peak {
+						peak = r
+					}
+				}
+			}
+		}()
 		// Derive the per-task deadline from the run context so cancellation
 		// (SIGINT) propagates into in-flight work. Fall back to a fresh
 		// background context if no run context was set (e.g. unit tests).
@@ -105,6 +131,13 @@ func (p *Pool) workerLoop(i int) {
 		ctx, cancel := context.WithTimeout(base, 120*time.Second)
 		err := p.workers[i].Run(ctx, t)
 		cancel()
+		close(stopPeak)
+		peak := <-peakCh
+		if peak > rssBefore {
+			p.rec.RecordTaskRSSDelta(peak - rssBefore)
+		} else {
+			p.rec.RecordTaskRSSDelta(0)
+		}
 		t.Finished = time.Now()
 		if err != nil {
 			t.Err = err

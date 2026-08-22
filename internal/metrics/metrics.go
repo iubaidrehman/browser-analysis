@@ -18,6 +18,7 @@ type Recorder struct {
 	browserLaunches   []float64 // seconds (scenarios A/B launch latency)
 	contextCreations  []float64 // seconds (scenario C context creation)
 	cdpConnects       []float64 // seconds (scenario D CDP connect)
+	taskRSSDeltas     []float64 // bytes (per-task working-set delta)
 
 	tasksCreated  int
 	tasksQueued   int
@@ -71,6 +72,7 @@ func (r *Recorder) Reset() {
 	r.requestLatencies = nil
 	r.httpStepLatencies = nil
 	r.browserStepLatencies = nil
+	r.taskRSSDeltas = nil
 	r.tasksCreated = 0
 	r.tasksQueued = 0
 	r.tasksActive = 0
@@ -105,6 +107,14 @@ func (r *Recorder) RecordCDPConnect(d time.Duration) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.cdpConnects = append(r.cdpConnects, d.Seconds())
+}
+
+// RecordTaskRSSDelta records the working-set delta (bytes) attributed to one
+// task, measured as the process RSS change across the task's execution.
+func (r *Recorder) RecordTaskRSSDelta(delta uint64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.taskRSSDeltas = append(r.taskRSSDeltas, float64(delta))
 }
 
 // RecordWorkflow adds a completed workflow duration (seconds).
@@ -198,6 +208,13 @@ func (r *Recorder) TransportLatencies() (httpSteps, browserSteps []float64) {
 	httpSteps = append([]float64(nil), r.httpStepLatencies...)
 	browserSteps = append([]float64(nil), r.browserStepLatencies...)
 	return
+}
+
+// RSSDeltas returns the per-task working-set deltas in bytes.
+func (r *Recorder) RSSDeltas() []float64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]float64(nil), r.taskRSSDeltas...)
 }
 
 // Counters returns the current task/request counters.
