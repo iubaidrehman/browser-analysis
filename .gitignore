@@ -29,6 +29,7 @@ __pycache__/
 /results/raw/
 /results/summaries/
 /results/sweeps/
+/results/report.md
 /telemetry/
 
 # Environment
