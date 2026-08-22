@@ -121,6 +121,12 @@ docker compose up --build
 - Backend API: http://localhost:8080
 - Optional Postgres, Prometheus, and Grafana: `docker compose --profile telemetry up`
 
+## Full analysis procedure
+
+For the complete end-to-end run (environment check → validation → sweep →
+report → cleanup), follow **[docs/benchmark-protocol.md](docs/benchmark-protocol.md)**.
+It is the canonical procedure; the quick-start above covers the essentials.
+
 ## Synthetic target
 
 The target SPA is fully offline. The backend supports configurable artificial

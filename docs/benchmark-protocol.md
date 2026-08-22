@@ -3,7 +3,9 @@
 ## Purpose
 
 A reproducible procedure for measuring how browser automation architectures
-behave under concurrency, against a locally hosted synthetic target.
+behave under concurrency, against a locally hosted synthetic target. Read the
+[README](../README.md) first for an overview, dependencies, and expected
+outcomes; this document is the step-by-step procedure.
 
 ## Prerequisites
 
