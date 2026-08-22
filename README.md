@@ -42,7 +42,7 @@ go run github.com/mxschmitt/playwright-go/cmd/playwright install chromium
 
 - Each `bench run` produces a run directory under `results/raw/` with
   metadata, summary, and raw CSV series; the console prints throughput,
-  completed/failed tasks, and latency percentiles.
+  completed/failed tasks, latency percentiles, and per-task memory.
 - `bench sweep` compares each concurrency level to the lowest-level baseline
   and flags **SATURATED** cells that cross degradation thresholds — these are
   research findings, not errors.
@@ -155,13 +155,50 @@ rely on.
 
 ## Tests
 
-```sh
-# Backend unit + integration tests
-cd target/backend && go test ./...
+Run the full Go test suite (unit + integration, race-enabled):
 
-# Frontend typecheck + production build
-cd target/frontend && npm run build
+```sh
+go test -race ./...          # controller internals
+cd target/backend && go test ./...   # synthetic backend API + store
 ```
+
+What is covered:
+
+- `internal/scheduler` — worker pool dispatch across all slots, task
+  completion/failure accounting, closed-loop driver, cancellation
+- `internal/workflow` — the four workflows execute end to end against an
+  in-process fake target; browser-only ops are skipped on the HTTP baseline
+- `internal/stats` — percentile and summary math (min/max/mean/median/p90/p95/p99)
+- `internal/config` — YAML load, default merging, validation
+- `internal/saturation` — threshold evaluation (p95/p99/failure-rate)
+- `internal/buildinfo` — config-hash determinism and mode sensitivity
+- `internal/contexts` — context pool acquire/release/close lifecycle against
+  a real headless Chromium
+- `internal/cdp` — raw Chromium spawn + CDP connect + workflow execution
+- `internal/hybrid` — escalation routing policy
+- `target/backend` — session/cart/checkout/order API integration tests
+
+Frontend validation (typecheck + production build):
+
+```sh
+cd target/frontend && npm install --include=dev && npm run build
+```
+
+## Analysis reports
+
+| Command | Output | What it gives you |
+|---|---|---|
+| `bench summarize` | console table | one row per run: throughput, completed, failed, p95 |
+| `bench report` | `results/report.md` | markdown with the latest sweep table (per-cell p95/p99/failed/cpu/saturation) plus all runs |
+| `bench status` | console | list of recorded run directories |
+| raw files | `results/raw/<run-id>/` | `metadata.json`, `summary.json`, `system_metrics.csv`, `process_metrics.csv`, `browser_metrics.csv`, `hybrid_metrics.csv`, `task_metrics.csv`, `task_rss_metrics.csv` |
+| sweep verdicts | `results/sweeps/<ts>.json` | per-cell saturation evaluation for later analysis |
+| `--metrics-addr :9091` | Prometheus `/metrics` | live gauges (throughput, latency, CPU, RAM, failures) for scraping |
+
+`summary.json` per run includes: throughput, completed/failed, latency
+distribution (min/max/mean/median/p90/p95/p99/stddev), browser launch +
+context creation + CDP connect latencies, per-task RSS (`task_rss_bytes`),
+peak/avg CPU and RAM, escalation count, and failure breakdown.
 
 ## Layout
 
