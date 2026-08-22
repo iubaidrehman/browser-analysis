@@ -16,8 +16,9 @@ does not contact external services.
 - Saturation detection (CPU>90%, P95>2× baseline, P99>3× baseline,
   failure rate>2%) with per-cell verdicts persisted to `results/sweeps/`
 
-Phases 3-10 (http, headed, headless, persistent-contexts, cdp, hybrid,
-telemetry, process-tree) remain implemented. CEF (G) is not yet implemented.
+Phases 3-11 (http, headed, headless, persistent-contexts, cdp, hybrid,
+telemetry, process-tree, sweeps) remain implemented. CEF (G) is explicitly
+documented as not-implemented — see `docs/cef.md`.
 
 ## Quick start
 

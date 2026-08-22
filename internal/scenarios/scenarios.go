@@ -17,6 +17,6 @@ func All() []Info {
 		{ID: "cdp", Description: "One persistent Chromium controlled through CDP.", Implemented: true},
 		{ID: "http", Description: "Lightweight HTTP workers without a browser.", Implemented: true},
 		{ID: "hybrid", Description: "HTTP workers that escalate selected operations to a browser.", Implemented: true},
-		{ID: "cef", Description: "Off-screen CEF/Chromium (optional).", Implemented: false},
+		{ID: "cef", Description: "Off-screen CEF/Chromium (optional; not implemented — requires a separate CEF toolchain).", Implemented: false},
 	}
 }
