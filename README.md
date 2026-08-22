@@ -9,18 +9,21 @@ does not contact external services.
 
 ## Status
 
-**Phase 13** — reproducibility hardening implemented:
+**Milestone complete** — Measurement Integrity + Aggregate Resource
+Accounting + Scaling Experiment:
 
-- `metadata.json` records the git commit (with `-dirty` marker) and a config
-  hash (including the experiment mode) for every run
-- Go/Node versions auto-detected; Playwright browser pinned via go.mod
-- `bench run --metrics-addr :9091` serves a Prometheus `/metrics` endpoint
-  with per-run gauges (throughput, latency, CPU, RAM, failures)
+- Process-role classification and aggregate RSS accounting (controller/
+  browser/target/aux, baseline + architecture delta)
+- CPU splits, process topology, measured lifecycle counts
+- Closed-loop driver fixed for honest throughput (worker-bound, not
+  concurrency-bound); verified scaling curve
+- New commands: `bench resources`, `bench topology`, `bench analyze-run`,
+  `bench analyze-sweep`; detailed reports under `results/reports/`
+- See `docs/milestone-completion.md` for the full report
 
-All spec phases are complete except CEF (G), which is explicitly documented
-as not-implemented — see `docs/cef.md`. Phases 1-12 cover the repository,
-synthetic target, http/headed/headless/persistent-contexts/cdp/hybrid
-scenarios, telemetry, process-tree monitoring, and concurrency sweeps.
+Prior phases cover the repository, synthetic target, all benchmark
+scenarios, telemetry, process-tree monitoring, and sweeps. CEF (G) is
+explicitly documented as not-implemented — see `docs/cef.md`.
 
 ## Dependencies
 
