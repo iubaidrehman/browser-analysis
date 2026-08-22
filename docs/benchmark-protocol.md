@@ -56,6 +56,16 @@ Expected: one run per cell; baseline = lowest concurrency averaged across
 repetitions; cells crossing thresholds (CPU>90%, P95>2x baseline, P99>3x,
 failure>2%) are flagged SATURATED; verdicts persist to `results/sweeps/`.
 
+## Scaling experiment (milestone section 16)
+
+```sh
+powershell -File scripts/run-scaling.ps1
+```
+
+Runs persistent-contexts at concurrency 100, 200, 300, 400, 500, 750, 1000
+(1 rep each, 14 GB adaptive safety ceiling). Override with
+`-Concurrency`, `-Repetitions`, `-MaxRSSGB`.
+
 ## Analysis
 
 ```sh
