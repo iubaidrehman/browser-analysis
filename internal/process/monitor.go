@@ -18,6 +18,10 @@ type Monitor struct {
 
 	mu        sync.Mutex
 	snapshots []Snapshot
+
+	// Sink, when set, receives every snapshot (including the seed) so an
+	// aggregator can consume it without coupling to the monitor.
+	Sink func(Snapshot)
 }
 
 // NewMonitor builds a monitor with the given snapshot interval.
@@ -39,6 +43,9 @@ func (m *Monitor) Run(ctx context.Context) func() {
 			m.mu.Lock()
 			m.snapshots = append(m.snapshots, snap)
 			m.mu.Unlock()
+			if m.Sink != nil {
+				m.Sink(snap)
+			}
 		}
 		ticker := time.NewTicker(m.interval)
 		defer ticker.Stop()
@@ -54,6 +61,9 @@ func (m *Monitor) Run(ctx context.Context) func() {
 				m.mu.Lock()
 				m.snapshots = append(m.snapshots, snap)
 				m.mu.Unlock()
+				if m.Sink != nil {
+					m.Sink(snap)
+				}
 			}
 		}
 	}()

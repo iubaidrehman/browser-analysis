@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"bcrl/internal/accounting"
 	"bcrl/internal/browser"
 	"bcrl/internal/cdp"
 	"bcrl/internal/config"
@@ -197,8 +198,12 @@ func Run(ctx context.Context, opts Options) (*results.Summary, error) {
 	defer sampleCancel()
 	samplerDone := sampler.Run(sampleCtx)
 
-	// Process-tree telemetry: snapshot the OS process table every 5s.
+	// Process-tree telemetry: snapshot the OS process table every 5s. The
+	// aggregator classifies processes into architecture roles and computes
+	// the resource series (milestone: aggregate resource accounting).
+	aggregator := accounting.NewAggregator(uint32(os.Getpid()), 0)
 	procMon := process.NewMonitor(5 * time.Second)
+	procMon.Sink = aggregator.Record
 	procCtx, procCancel := context.WithCancel(runCtx)
 	defer procCancel()
 	procDone := procMon.Run(procCtx)
@@ -253,6 +258,12 @@ func Run(ctx context.Context, opts Options) (*results.Summary, error) {
 	summary.AvgRAMBytes = avgRAM
 	if werr := results.WriteSummary(dir, summary); werr != nil {
 		return nil, fmt.Errorf("write summary: %w", werr)
+	}
+
+	// Build and persist the resource accounting (milestone).
+	resource := results.BuildResourceSummary(aggregator, rec, cfg.Concurrency.LogicalTasks, summary.Throughput)
+	if werr := results.WriteJSON(dir, "resource_summary.json", resource); werr != nil {
+		log.Warn("resource summary write failed", "err", werr)
 	}
 
 	// Publish to Prometheus if an endpoint was requested.

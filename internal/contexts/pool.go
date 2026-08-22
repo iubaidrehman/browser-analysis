@@ -33,6 +33,7 @@ func NewPool(manager *browser.Manager, headless bool, n int, rec *metrics.Record
 		return nil, err
 	}
 	rec.RecordBrowserLaunch(launchDur)
+	rec.RecordLifecycle(metrics.LifecycleEvent{Type: metrics.EvBrowserLaunchCompleted, At: time.Now()})
 	return NewPoolWithBrowser(b, n, rec)
 }
 
@@ -54,6 +55,7 @@ func NewPoolWithBrowser(b playwright.Browser, n int, rec *metrics.Recorder) (*Po
 }
 
 func (p *Pool) newContext() (playwright.BrowserContext, time.Duration, error) {
+	p.rec.RecordLifecycle(metrics.LifecycleEvent{Type: metrics.EvContextCreateStarted, At: time.Now()})
 	start := time.Now()
 	ctx, err := p.browser.NewContext()
 	if err != nil {

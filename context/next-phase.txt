@@ -1,0 +1,659 @@
+We have completed the first BCRL benchmark sweep.
+
+Do NOT add new browser architectures yet.
+Do NOT implement CEF yet.
+Do NOT optimize performance yet.
+
+The next milestone is:
+"Measurement Integrity + Aggregate Resource Accounting + Scaling Experiment"
+
+We discovered that the current report's RSS fields are task-level RSS deltas, while we need a true architecture-level memory measurement.
+
+============================================================
+OBJECTIVE
+============================================================
+
+Upgrade the benchmark so that we can answer:
+
+1. How much total RAM does each architecture actually consume?
+2. How does total RAM scale as logical concurrency increases?
+3. How many Chromium/browser/renderer processes are created?
+4. What is the CPU cost of each architecture?
+5. What is the latency/throughput scaling behavior?
+6. At what concurrency level does each architecture saturate?
+7. How much of the total resource usage is attributable to the
+   browser runtime versus the controller/target application?
+
+The benchmark must distinguish:
+
+A. logical-task RSS delta
+B. total benchmark architecture RSS
+C. browser process-tree RSS
+D. target application RSS
+E. controller RSS
+F. system-wide RSS
+
+============================================================
+1. DO NOT REMOVE EXISTING METRICS
+============================================================
+
+Keep the existing:
+
+    task_rss_delta_bytes
+
+It is useful and must remain.
+
+Rename/display it clearly as:
+
+    task_rss_delta_mb
+
+and document that it represents the measured RSS delta associated
+with an individual task/workflow.
+
+Do NOT call this "total memory".
+
+============================================================
+2. ADD PROCESS-TREE RESOURCE ACCOUNTING
+============================================================
+
+For every benchmark run, identify all benchmark-owned processes.
+
+At minimum distinguish:
+
+    controller
+    browser parent process
+    browser child processes
+    Chromium renderer processes
+    Chromium utility processes
+    GPU process if present
+    target backend
+    target frontend if separately spawned
+    telemetry/metrics processes if applicable
+
+For every sampled process record:
+
+    timestamp
+    run_id
+    pid
+    parent_pid
+    process_name
+    process_role
+    cpu_percent
+    rss_bytes
+    thread_count
+
+Persist this as:
+
+    process_metrics.csv
+
+============================================================
+3. ADD AGGREGATE RSS
+============================================================
+
+At every metrics interval calculate:
+
+    controller_rss
+    browser_tree_rss
+    target_rss
+    auxiliary_rss
+    benchmark_total_rss
+
+Definitions:
+
+browser_tree_rss =
+    sum RSS of all browser-related processes owned by the benchmark
+
+benchmark_total_rss =
+    controller_rss
+    + browser_tree_rss
+    + target_rss
+    + auxiliary_rss
+
+Do not double-count parent/child memory unless the operating-system metric
+being used explicitly requires it.
+
+Document exactly how memory is calculated.
+
+============================================================
+4. IMPORTANT: WINDOWS SUPPORT
+============================================================
+
+The primary development environment is Windows.
+
+Use correct Windows process accounting.
+
+Do not assume Linux /proc exists.
+
+Process enumeration must work on Windows.
+
+If Linux support is also implemented, use an OS abstraction:
+
+    ProcessSampler interface
+
+Implement:
+
+    WindowsProcessSampler
+    LinuxProcessSampler
+
+Do not mix platform-specific code into benchmark logic.
+
+============================================================
+5. BASELINE MEMORY
+============================================================
+
+Before starting the actual workload, capture:
+
+    system total RAM
+    available RAM
+    controller RSS
+    browser RSS if browser already exists
+    target RSS
+    benchmark total RSS
+
+Call this:
+
+    baseline snapshot
+
+Then calculate:
+
+    architecture_rss_delta =
+        benchmark_total_rss -
+        benchmark_baseline_rss
+
+This is the primary memory metric for scalability analysis.
+
+============================================================
+6. MEMORY REPORTING
+============================================================
+
+The report must contain:
+
+    rss_total_mean_mb
+    rss_total_p50_mb
+    rss_total_p95_mb
+    rss_total_peak_mb
+
+and separately:
+
+    browser_rss_mean_mb
+    browser_rss_p95_mb
+    browser_rss_peak_mb
+
+and:
+
+    task_rss_mean_mb
+    task_rss_p95_mb
+
+Do not combine these columns.
+
+============================================================
+7. CPU ACCOUNTING
+============================================================
+
+Clarify exactly what current cpu% means.
+
+Document whether it is:
+
+    machine-wide CPU
+    benchmark-owned process CPU
+    browser-only CPU
+    normalized CPU
+
+Add separate metrics:
+
+    benchmark_cpu_mean
+    benchmark_cpu_p95
+    browser_cpu_mean
+    browser_cpu_p95
+    controller_cpu_mean
+    controller_cpu_p95
+    target_cpu_mean
+    target_cpu_p95
+
+If process-level CPU is already available, aggregate browser CPU
+from browser-owned processes.
+
+============================================================
+8. PROCESS TOPOLOGY
+============================================================
+
+For every run, calculate:
+
+    total_process_count
+    browser_process_count
+    renderer_process_count
+    utility_process_count
+    gpu_process_count
+    controller_process_count
+    target_process_count
+
+Also capture:
+
+    peak_process_count
+    mean_process_count
+
+The final report should allow us to see whether:
+
+    100 logical tasks
+
+means:
+
+    1 browser process
+    10 browser processes
+    100 browser processes
+
+etc.
+
+============================================================
+9. CONTEXT/PAGE COUNTS
+============================================================
+
+Expose architecture-specific counts:
+
+    logical_tasks
+    active_workers
+    browsers
+    browser_contexts
+    pages
+
+For persistent-context architecture the report MUST explicitly show:
+
+    browser_count = 1
+    context_count = N
+
+when that is what the implementation created.
+
+For independent-browser scenarios:
+
+    browser_count = N
+
+where appropriate.
+
+Do not infer these values from configuration.
+Measure them from actual lifecycle events.
+
+============================================================
+10. LIFECYCLE TELEMETRY
+============================================================
+
+For each task record timestamps for:
+
+    task_created
+    worker_started
+    browser_launch_started
+    browser_launch_completed
+    browser_connected
+    context_create_started
+    context_create_completed
+    page_create_started
+    page_create_completed
+    navigation_started
+    navigation_completed
+    workflow_started
+    workflow_completed
+    task_finished
+
+Not every architecture will use every event.
+
+Use null/N/A where a lifecycle stage does not apply.
+
+============================================================
+11. FIX PERCENTILE REPORTING
+============================================================
+
+The report currently displays misleading:
+
+    P99 = 0
+
+for single-sample cases.
+
+Fix the reporting layer.
+
+When there are insufficient observations for a meaningful percentile,
+display:
+
+    N/A
+
+instead of:
+
+    0
+
+Do not fabricate a percentile.
+
+At minimum, do this for concurrency=1.
+
+Document the minimum sample requirements.
+
+============================================================
+12. UPDATE SUMMARY TABLE
+============================================================
+
+Change the report summary table to include:
+
+scenario
+concurrency
+rep
+
+throughput/s
+
+p50
+p95
+p99
+
+failed
+
+benchmark_cpu_mean
+benchmark_cpu_p95
+
+browser_cpu_mean
+browser_cpu_p95
+
+rss_total_mean_mb
+rss_total_p95_mb
+rss_total_peak_mb
+
+browser_rss_mean_mb
+browser_rss_p95_mb
+browser_rss_peak_mb
+
+task_rss_mean_mb
+task_rss_p95_mb
+
+process_mean
+process_peak
+
+browser_process_mean
+browser_process_peak
+
+saturated
+
+============================================================
+13. MEMORY SCALING METRICS
+============================================================
+
+Add derived metrics:
+
+    memory_delta_per_logical_task
+
+    browser_memory_delta_per_context
+
+    memory_delta_per_active_worker
+
+For concurrency N:
+
+    memory_delta_per_task =
+        architecture_rss_delta / N
+
+Do NOT assume linearity.
+
+These are descriptive metrics only.
+
+============================================================
+14. CPU EFFICIENCY
+============================================================
+
+Add:
+
+    throughput_per_cpu_percent
+
+    throughput_per_gb_rss
+
+Example:
+
+    throughput_per_gb =
+        throughput_per_second /
+        rss_total_mean_gb
+
+Do not use these metrics to claim one architecture is universally
+better.
+
+They are workload-specific measurements.
+
+============================================================
+15. NEW COMMANDS
+============================================================
+
+Implement:
+
+    bench analyze-run --run <RUN_ID>
+
+    bench analyze-sweep --sweep <SWEEP_ID>
+
+    bench topology --run <RUN_ID>
+
+    bench resources --run <RUN_ID>
+
+Example:
+
+    bench resources --run 20260822T121649Z-persistent-contexts-100-run03
+
+Output:
+
+    CPU
+      benchmark mean
+      benchmark p95
+      browser mean
+      browser p95
+
+    MEMORY
+      baseline
+      total mean
+      total p95
+      total peak
+      browser mean
+      browser p95
+      browser peak
+
+    PROCESSES
+      mean
+      peak
+      browser
+      renderer
+      utility
+      GPU
+
+    CONCURRENCY
+      logical tasks
+      active workers
+      contexts
+      pages
+
+============================================================
+16. NEW EXPERIMENT: PERSISTENT CONTEXT SCALING
+============================================================
+
+After the instrumentation changes pass tests, add:
+
+    100
+    200
+    300
+    400
+    500
+    750
+    1000
+
+for:
+
+    persistent-contexts
+
+Use the same:
+
+    complex workflow
+    warmup
+    measurement
+    cooldown
+
+as the prior sweep.
+
+Do NOT change the synthetic workload.
+
+The objective is to find the scalability curve.
+
+============================================================
+17. ADAPTIVE SAFETY
+============================================================
+
+The benchmark must not blindly push the machine into dangerous resource
+exhaustion.
+
+Before each higher concurrency:
+
+    inspect previous run's peak memory
+    inspect peak CPU
+    inspect browser creation failures
+    inspect context creation failures
+
+If the configured safety threshold is exceeded:
+
+    stop the sweep
+    persist all previous results
+    mark the next configuration as not-run
+
+Do not crash or intentionally destabilize the machine.
+
+============================================================
+18. SCALING OUTPUT
+============================================================
+
+Add a sweep summary:
+
+concurrency
+throughput
+p95
+p99
+cpu
+rss
+browser_rss
+process_count
+browser_process_count
+context_count
+failure_rate
+saturated
+
+This must be machine-readable CSV and human-readable Markdown.
+
+============================================================
+19. DO NOT ADD NEW ARCHITECTURES
+============================================================
+
+Do NOT implement:
+
+    CEF
+    new browser engines
+    proxy infrastructure
+    anti-bot mechanisms
+    external sites
+
+yet.
+
+The objective of this milestone is measurement quality.
+
+============================================================
+20. TESTS
+============================================================
+
+Add tests proving:
+
+1. Process ownership detection works.
+2. Parent/child browser processes are grouped correctly.
+3. RSS is aggregated without double-counting.
+4. Browser RSS is separated from target RSS.
+5. Controller RSS is separated from browser RSS.
+6. Baseline memory is captured before workload.
+7. RSS delta is calculated correctly.
+8. Process count is calculated correctly.
+9. Context count matches actual lifecycle events.
+10. Single-sample P99 reports N/A.
+11. No browser process leaks after benchmark completion.
+
+============================================================
+21. VALIDATION RUN
+============================================================
+
+Before the full scaling sweep run:
+
+    headed 10
+    headless 10
+    persistent-contexts 10
+    http 10
+
+three repetitions each.
+
+Verify that:
+
+    total_rss
+    browser_rss
+    controller_rss
+    process_counts
+    lifecycle events
+
+are internally consistent.
+
+Then run:
+
+    persistent-contexts
+
+at:
+
+    100
+    200
+    300
+    400
+    500
+    750
+    1000
+
+or until safety thresholds are reached.
+
+============================================================
+22. EXPECTED OUTPUT
+============================================================
+
+At the end produce:
+
+results/
+    raw/
+        <run ids>/
+
+    summaries/
+        resource-summary.csv
+        scaling-summary.csv
+
+    reports/
+        resource-report.md
+        topology-report.md
+        scaling-report.md
+
+The report must NOT contain fabricated conclusions.
+
+It should report measurements and clearly separate:
+
+    measured
+    derived
+    unavailable
+
+============================================================
+23. FINAL COMPLETION REPORT
+============================================================
+
+When finished, give me:
+
+1. Files changed.
+2. New metrics.
+3. Commands to reproduce.
+4. Validation results.
+5. Full persistent-context scaling results.
+6. Any configurations that could not be run.
+7. Peak CPU.
+8. Peak total RSS.
+9. Peak browser RSS.
+10. Maximum context count achieved.
+11. Maximum logical-task count achieved.
+12. Process topology at 100/500/1000.
+13. Any instrumentation limitations.
+
+Do not proceed to CEF/CDP optimization until this milestone is complete.
+
+============================================================
+END
+============================================================

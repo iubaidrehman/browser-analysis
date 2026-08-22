@@ -39,6 +39,14 @@ func main() {
 		err = cmdSummarize(os.Args[2:])
 	case "report":
 		err = cmdReport(os.Args[2:])
+	case "resources":
+		err = cmdResources(os.Args[2:])
+	case "topology":
+		err = cmdTopology(os.Args[2:])
+	case "analyze-run":
+		err = cmdAnalyzeRun(os.Args[2:])
+	case "analyze-sweep":
+		err = cmdAnalyzeSweep(os.Args[2:])
 	case "status":
 		err = cmdStatus()
 	case "cleanup":
@@ -66,6 +74,10 @@ func usage() {
 	fmt.Println("  sweep            run a scenario/concurrency matrix")
 	fmt.Println("  summarize        summarize raw results")
 	fmt.Println("  report           write a markdown report from sweep results")
+	fmt.Println("  resources        show per-run resource accounting")
+	fmt.Println("  topology         show per-run process topology")
+	fmt.Println("  analyze-run      deep-dive analysis of a single run")
+	fmt.Println("  analyze-sweep    deep-dive analysis of a sweep")
 	fmt.Println("  status           show current benchmark state")
 	fmt.Println("  cleanup          remove leftover state")
 }

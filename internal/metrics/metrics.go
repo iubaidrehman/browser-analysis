@@ -20,6 +20,15 @@ type Recorder struct {
 	cdpConnects       []float64 // seconds (scenario D CDP connect)
 	taskRSSDeltas     []float64 // bytes (per-task working-set delta)
 
+	// Lifecycle counters measured from events (milestone section 10).
+	browsersCreated int
+	contextsCreated int
+	pagesCreated    int
+	workersActive   int
+
+	// Lifecycle event log (task/browser/context/page timestamps).
+	lifecycle []LifecycleEvent
+
 	tasksCreated  int
 	tasksQueued   int
 	tasksActive   int
@@ -73,6 +82,11 @@ func (r *Recorder) Reset() {
 	r.httpStepLatencies = nil
 	r.browserStepLatencies = nil
 	r.taskRSSDeltas = nil
+	// Lifecycle counters are preserved across the warmup reset: browsers,
+	// contexts, and pages are created during setup before the measurement
+	// window and never contain warmup samples (mirrors browser launch /
+	// context creation series preservation).
+	r.lifecycle = nil
 	r.tasksCreated = 0
 	r.tasksQueued = 0
 	r.tasksActive = 0
@@ -115,6 +129,35 @@ func (r *Recorder) RecordTaskRSSDelta(delta uint64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.taskRSSDeltas = append(r.taskRSSDeltas, float64(delta))
+}
+
+// RecordLifecycle appends a lifecycle event and bumps the matching counter.
+func (r *Recorder) RecordLifecycle(ev LifecycleEvent) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.lifecycle = append(r.lifecycle, ev)
+	switch ev.Type {
+	case EvBrowserLaunchStarted, EvBrowserLaunchCompleted, EvBrowserConnected:
+		r.browsersCreated++
+	case EvContextCreateStarted, EvContextCreateCompleted:
+		r.contextsCreated++
+	case EvPageCreateStarted, EvPageCreateCompleted:
+		r.pagesCreated++
+	}
+}
+
+// Lifecycle returns a copy of the lifecycle event log.
+func (r *Recorder) Lifecycle() []LifecycleEvent {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]LifecycleEvent(nil), r.lifecycle...)
+}
+
+// LifecycleCounts returns measured browser/context/page counts.
+func (r *Recorder) LifecycleCounts() (browsers, contexts, pages int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.browsersCreated, r.contextsCreated, r.pagesCreated
 }
 
 // RecordWorkflow adds a completed workflow duration (seconds).

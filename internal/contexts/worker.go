@@ -3,6 +3,7 @@ package contexts
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"bcrl/internal/browser"
 	"bcrl/internal/metrics"
@@ -38,6 +39,7 @@ func (w *Worker) Run(ctx context.Context, t *scheduler.Task) error {
 		w.pool.Release(bctx)
 		return fmt.Errorf("new page: %w", err)
 	}
+	w.rec.RecordLifecycle(metrics.LifecycleEvent{Type: metrics.EvPageCreateCompleted, At: time.Now(), TaskID: t.ID})
 	defer page.Close()
 
 	exec := browser.NewPageExecutor(page)
