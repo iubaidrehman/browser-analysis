@@ -9,17 +9,15 @@ does not contact external services.
 
 ## Status
 
-**Phase 10** — process-tree monitoring implemented:
+**Phase 11** — concurrency sweeps implemented:
 
-- OS process table snapshots every 5s (PID, PPID, name, CPU, RSS, threads)
-  via Win32 API, persisted to `process_metrics.csv`
-- Captures the controller → Chromium → renderer/GPU/utility topology so
-  logical tasks are distinguishable from OS processes
-- Per-process CPU normalized to the system denominator; elevated/system
-  processes flagged with `access_denied`
+- `bench sweep --scenarios http,headless,... --concurrency 1,10,25,... --workflow complex --repetitions 5`
+- Baseline = lowest concurrency level averaged across repetitions
+- Saturation detection (CPU>90%, P95>2× baseline, P99>3× baseline,
+  failure rate>2%) with per-cell verdicts persisted to `results/sweeps/`
 
-Phases 3-9 (http, headed, headless, persistent-contexts, cdp, hybrid,
-telemetry) remain implemented. CEF (G) is not yet implemented.
+Phases 3-10 (http, headed, headless, persistent-contexts, cdp, hybrid,
+telemetry, process-tree) remain implemented. CEF (G) is not yet implemented.
 
 ## Quick start
 

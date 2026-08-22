@@ -3,13 +3,22 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
 
+	"bcrl/internal/config"
 	"bcrl/internal/controller"
 	"bcrl/internal/logging"
 	"bcrl/internal/results"
+	"bcrl/internal/saturation"
+	"bcrl/internal/scenarios"
+	"bcrl/internal/workflow"
 )
 
 // cmdRun executes a single benchmark run.
@@ -81,6 +90,189 @@ func cmdQuick(args []string) error {
 		}
 	}
 	return nil
+}
+
+// cmdSweep runs the scenario x concurrency x repetitions matrix (spec section
+// 22) with saturation detection against the lowest-concurrency baseline.
+func cmdSweep(args []string) error {
+	fs := flag.NewFlagSet("sweep", flag.ExitOnError)
+	configPath := fs.String("config", "bench.yaml", "path to configuration file")
+	scenariosArg := fs.String("scenarios", "", "comma-separated scenarios")
+	concurrencyArg := fs.String("concurrency", "", "comma-separated concurrency levels")
+	workflowName := fs.String("workflow", "", "workflow name (default: config)")
+	reps := fs.Int("repetitions", 1, "repetitions per cell")
+	resultsDir := fs.String("results", "results", "results root directory")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		return err
+	}
+	if *workflowName != "" {
+		cfg.Workflow.Name = *workflowName
+	}
+	wf, ok := workflow.Get(cfg.Workflow.Name)
+	if !ok {
+		return fmt.Errorf("unknown workflow %q", cfg.Workflow.Name)
+	}
+
+	scenarioList := parseList(*scenariosArg)
+	if len(scenarioList) == 0 {
+		scenarioList = []string{cfg.Scenario}
+	}
+	// Validate the scenario list up front so a typo or unimplemented scenario
+	// fails fast instead of after hours of runs.
+	known := map[string]bool{}
+	for _, s := range scenarios.All() {
+		known[s.ID] = true
+	}
+	for _, s := range scenarioList {
+		if !known[s] {
+			return fmt.Errorf("unknown or unimplemented scenario %q", s)
+		}
+	}
+
+	levels := parseList(*concurrencyArg)
+	if len(levels) == 0 {
+		levels = []string{"1", "5", "10", "25", "50", "100", "250", "500", "750", "1000"}
+	}
+
+	log := logging.Default()
+	th := saturation.DefaultThresholds()
+	var sweepRec []sweepCellResult
+
+	for _, scenario := range scenarioList {
+		cfg.Scenario = scenario
+
+		// Baseline: the lowest concurrency level, averaged across repetitions
+		// so a single cold-start run cannot corrupt the ratios.
+		baseLvl, err := strconv.Atoi(levels[0])
+		if err != nil {
+			return fmt.Errorf("invalid concurrency %q", levels[0])
+		}
+		cfg.Concurrency.LogicalTasks = baseLvl
+		var baseAcc results.Summary
+		baseCount := 0
+		for r := 1; r <= *reps; r++ {
+			summary, err := runSweepCell(cfg, wf, *resultsDir, scenario, baseLvl, r, log)
+			if err != nil {
+				return err
+			}
+			accumulate(&baseAcc, summary)
+			baseCount++
+		}
+		baseAcc.Failed /= baseCount
+		baseAcc.TotalTasks /= baseCount
+		baseAcc.Latency.P95 /= float64(baseCount)
+		baseAcc.Latency.P99 /= float64(baseCount)
+		baseAcc.AvgCPU /= float64(baseCount)
+		baseAcc.AvgRAMBytes /= uint64(baseCount)
+		baseline := &baseAcc
+		fmt.Printf("sweep %-20s concurrency=%-4d baseline p95=%.3fs cpu=%.1f%% (avg of %d)\n",
+			scenario, baseLvl, baseline.Latency.P95, baseline.AvgCPU, baseCount)
+		sweepRec = append(sweepRec, sweepCellResult{
+			Scenario: scenario, Concurrency: baseLvl, Baseline: true,
+			P95: baseline.Latency.P95, CPU: baseline.AvgCPU,
+		})
+
+		for _, lvlStr := range levels[1:] {
+			lvl, err := strconv.Atoi(lvlStr)
+			if err != nil {
+				return fmt.Errorf("invalid concurrency %q", lvlStr)
+			}
+			cfg.Concurrency.LogicalTasks = lvl
+			for r := 1; r <= *reps; r++ {
+				summary, err := runSweepCell(cfg, wf, *resultsDir, scenario, lvl, r, log)
+				if err != nil {
+					return err
+				}
+				ev := saturation.Evaluate(summary, baseline, th)
+				status := "ok"
+				if ev.Saturated {
+					status = "SATURATED: " + strings.Join(ev.Violations, ",")
+				}
+				fmt.Printf("sweep %-20s concurrency=%-4d p95=%.3fs failed=%d rate=%.2f%% -> %s\n",
+					scenario, lvl, summary.Latency.P95, summary.Failed,
+					float64(summary.Failed)/float64(max(summary.TotalTasks, 1))*100, status)
+				sweepRec = append(sweepRec, sweepCellResult{
+					Scenario: scenario, Concurrency: lvl, Rep: r,
+					P95: summary.Latency.P95, P99: summary.Latency.P99,
+					Failed: summary.Failed, Total: summary.TotalTasks,
+					CPU: summary.AvgCPU, Saturated: ev.Saturated,
+					Violations: ev.Violations,
+				})
+			}
+		}
+	}
+
+	// Persist the sweep evaluation for later analysis.
+	dir := filepath.Join(*resultsDir, "sweeps")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(sweepRec, "", "  ")
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(dir, time.Now().UTC().Format("20060102T150405Z")+".json")
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return err
+	}
+	fmt.Printf("sweep evaluation written to %s\n", path)
+	return nil
+}
+
+// runSweepCell runs one sweep cell.
+func runSweepCell(cfg config.Config, wf workflow.Workflow, resultsDir, scenario string, lvl, rep int, log *slog.Logger) (*results.Summary, error) {
+	cfg.Scenario = scenario
+	cfg.Concurrency.LogicalTasks = lvl
+	log.Info("sweep cell", "scenario", scenario, "concurrency", lvl, "rep", rep)
+	return controller.Run(context.Background(), controller.Options{
+		Config:     cfg,
+		Workflow:   wf,
+		Mode:       "fixed",
+		ResultsDir: resultsDir,
+		Repetition: rep,
+		Logger:     log,
+	})
+}
+
+// accumulate folds a summary into an accumulator for baseline averaging.
+func accumulate(acc, s *results.Summary) {
+	acc.Failed += s.Failed
+	acc.TotalTasks += s.TotalTasks
+	acc.Latency.P95 += s.Latency.P95
+	acc.Latency.P99 += s.Latency.P99
+	acc.AvgCPU += s.AvgCPU
+	acc.AvgRAMBytes += s.AvgRAMBytes
+}
+
+// sweepCellResult is one persisted sweep row.
+type sweepCellResult struct {
+	Scenario    string   `json:"scenario"`
+	Concurrency int      `json:"concurrency"`
+	Rep         int      `json:"rep,omitempty"`
+	Baseline    bool     `json:"baseline,omitempty"`
+	P95         float64  `json:"p95"`
+	P99         float64  `json:"p99,omitempty"`
+	Failed      int      `json:"failed,omitempty"`
+	Total       int      `json:"total,omitempty"`
+	CPU         float64  `json:"cpu_percent,omitempty"`
+	Saturated   bool     `json:"saturated,omitempty"`
+	Violations  []string `json:"violations,omitempty"`
+}
+
+func parseList(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // cmdSummarize prints a human summary of all runs under results/raw.

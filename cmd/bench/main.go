@@ -33,6 +33,8 @@ func main() {
 		err = cmdRun(os.Args[2:])
 	case "quick":
 		err = cmdQuick(os.Args[2:])
+	case "sweep":
+		err = cmdSweep(os.Args[2:])
 	case "summarize":
 		err = cmdSummarize(os.Args[2:])
 	case "status":
@@ -59,6 +61,7 @@ func usage() {
 	fmt.Println("  list-scenarios   list available benchmark scenarios")
 	fmt.Println("  run              run a single benchmark")
 	fmt.Println("  quick            run the quick benchmark matrix")
+	fmt.Println("  sweep            run a scenario/concurrency matrix")
 	fmt.Println("  summarize        summarize raw results")
 	fmt.Println("  status           show current benchmark state")
 	fmt.Println("  cleanup          remove leftover state")

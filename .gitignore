@@ -28,6 +28,7 @@ __pycache__/
 # Benchmark results
 /results/raw/
 /results/summaries/
+/results/sweeps/
 /telemetry/
 
 # Environment
