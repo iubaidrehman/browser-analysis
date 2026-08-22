@@ -70,6 +70,14 @@ func Run(ctx context.Context, opts Options) (*results.Summary, error) {
 	}
 	defer pool.Close()
 
+	// Aggregator for resource accounting; baseline is captured before any
+	// browser/worker processes are created so the architecture RSS delta
+	// measures workload memory, not setup memory (milestone section 5).
+	aggregator := accounting.NewAggregator(uint32(os.Getpid()), 0)
+	if bsnap, berr := process.NewCollector().Sample(); berr == nil {
+		aggregator.SetBaseline(bsnap)
+	}
+
 	var workers []scheduler.Worker
 
 	switch cfg.Scenario {
@@ -201,8 +209,8 @@ func Run(ctx context.Context, opts Options) (*results.Summary, error) {
 	// Process-tree telemetry: snapshot the OS process table every 5s. The
 	// aggregator classifies processes into architecture roles and computes
 	// the resource series (milestone: aggregate resource accounting).
-	aggregator := accounting.NewAggregator(uint32(os.Getpid()), 0)
 	procMon := process.NewMonitor(5 * time.Second)
+	procMon.Classify = aggregator.Classify
 	procMon.Sink = aggregator.Record
 	procCtx, procCancel := context.WithCancel(runCtx)
 	defer procCancel()

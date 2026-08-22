@@ -24,9 +24,26 @@ func NewAggregator(controllerPID, targetPID uint32) *Aggregator {
 	}
 }
 
-// Record classifies and aggregates a snapshot.
-func (a *Aggregator) Record(snap process.Snapshot) {
+// Classify assigns architecture roles to a snapshot. Used by the process
+// monitor so persisted process_metrics.csv carries process_role.
+func (a *Aggregator) Classify(snap *process.Snapshot) {
+	a.ownership.Classify(*snap)
+}
+
+// SetBaseline records the pre-workload process state as the baseline, without
+// adding it to the measurement samples. Call before browsers/workers are
+// created so the architecture RSS delta excludes setup memory.
+func (a *Aggregator) SetBaseline(snap process.Snapshot) {
 	a.ownership.Classify(snap)
+	s := Aggregate(snap)
+	a.mu.Lock()
+	a.baseline = s
+	a.haveBase = true
+	a.mu.Unlock()
+}
+
+// Record aggregates a snapshot (roles must already be assigned via Classify).
+func (a *Aggregator) Record(snap process.Snapshot) {
 	s := Aggregate(snap)
 	a.mu.Lock()
 	defer a.mu.Unlock()

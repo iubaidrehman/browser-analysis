@@ -91,11 +91,13 @@ func (w *Worker) Run(ctx context.Context, t *scheduler.Task) error {
 	// Browser launch is a measured lifecycle event; keep it separate from
 	// workflow step latencies.
 	w.rec.RecordBrowserLaunch(launchDur)
+	w.rec.RecordLifecycle(metrics.LifecycleEvent{Type: metrics.EvBrowserLaunchCompleted, At: time.Now(), TaskID: t.ID})
 
 	page, err := browser.NewPage()
 	if err != nil {
 		return fmt.Errorf("new page: %w", err)
 	}
+	w.rec.RecordLifecycle(metrics.LifecycleEvent{Type: metrics.EvPageCreateCompleted, At: time.Now(), TaskID: t.ID})
 	defer page.Close()
 
 	exec := NewPageExecutor(page)

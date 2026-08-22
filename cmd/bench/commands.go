@@ -174,6 +174,7 @@ func cmdSweep(args []string) error {
 		}
 		baseAcc.Failed /= baseCount
 		baseAcc.TotalTasks /= baseCount
+		baseAcc.Latency.Median /= float64(baseCount)
 		baseAcc.Latency.P95 /= float64(baseCount)
 		baseAcc.Latency.P99 /= float64(baseCount)
 		baseAcc.AvgCPU /= float64(baseCount)
@@ -185,12 +186,13 @@ func cmdSweep(args []string) error {
 			baseline.TaskRSSBytes.Mean/1048576, baseCount)
 		sweepRec = append(sweepRec, sweepCellResult{
 			Scenario: scenario, Concurrency: baseLvl, Baseline: true,
-			P95: baseline.Latency.P95, CPU: baseline.AvgCPU,
+			P50: baseline.Latency.Median, P95: baseline.Latency.P95, CPU: baseline.AvgCPU,
 			RSSMeanMB: baseline.TaskRSSBytes.Mean / 1048576,
 		})
 
 		prevLevel := baseLvl
 		prevPeakRAM := uint64(0)
+	safetyLoop:
 		for _, lvlStr := range levels[1:] {
 			lvl, err := strconv.Atoi(lvlStr)
 			if err != nil {
@@ -199,16 +201,17 @@ func cmdSweep(args []string) error {
 			// Adaptive safety (milestone section 17): before escalating to a
 			// higher concurrency, inspect the previous level's peak memory.
 			// If it exceeds the configured ceiling, stop the sweep, persist
-			// everything so far, and mark the next configuration not-run.
+			// everything so far, and mark remaining configurations not-run.
 			if *maxRSSGB > 0 && prevPeakRAM > 0 && float64(prevPeakRAM) > *maxRSSGB*1073741824 {
 				fmt.Printf("safety: peak RAM %.1f GB at concurrency %d exceeds ceiling %.1f GB; stopping sweep\n",
 					float64(prevPeakRAM)/1073741824, prevLevel, *maxRSSGB)
-				for _, nl := range append([]string{lvlStr}, levels[levelIdx(levels, lvlStr)+1:]...) {
+				for _, nl := range levels[levelIdx(levels, lvlStr):] {
+					nlv, _ := strconv.Atoi(nl)
 					sweepRec = append(sweepRec, sweepCellResult{
-						Scenario: scenario, Concurrency: atoiOr(nl, 0), NotRun: true,
+						Scenario: scenario, Concurrency: nlv, NotRun: true,
 					})
 				}
-				goto sweepDone
+				break safetyLoop
 			}
 			cfg.Concurrency.LogicalTasks = lvl
 			levelPeak := uint64(0)
@@ -225,17 +228,27 @@ func cmdSweep(args []string) error {
 				if ev.Saturated {
 					status = "SATURATED: " + strings.Join(ev.Violations, ",")
 				}
-				fmt.Printf("sweep %-20s concurrency=%-4d p95=%.3fs failed=%d rss=%.0fMB rate=%.2f%% -> %s\n",
+				res := loadResource(*resultsDir, summary.RunID)
+				fmt.Printf("sweep %-20s concurrency=%-4d p95=%.3fs failed=%d rss=%.0fMB procs=%d rate=%.2f%% -> %s\n",
 					scenario, lvl, summary.Latency.P95, summary.Failed,
-					summary.TaskRSSBytes.Mean/1048576,
+					summary.TaskRSSBytes.Mean/1048576, res.TotalProcesses.Mean,
 					float64(summary.Failed)/float64(max(summary.TotalTasks, 1))*100, status)
 				sweepRec = append(sweepRec, sweepCellResult{
 					Scenario: scenario, Concurrency: lvl, Rep: r,
-					P95: summary.Latency.P95, P99: summary.Latency.P99,
+					P50: summary.Latency.Median, P95: summary.Latency.P95, P99: summary.Latency.P99,
 					Failed: summary.Failed, Total: summary.TotalTasks,
 					CPU: summary.AvgCPU, Saturated: ev.Saturated,
+					Throughput: summary.Throughput,
 					RSSMeanMB: summary.TaskRSSBytes.Mean / 1048576,
 					RSSP95MB:  summary.TaskRSSBytes.P95 / 1048576,
+					BrowserRSSMeanMB: float64(res.BrowserRSS.Mean) / 1048576,
+					BrowserRSSP95MB:  float64(res.BrowserRSS.P95) / 1048576,
+					BenchmarkCPUMean: res.BenchmarkCPU.Mean,
+					BrowserCPUMean:   res.BrowserCPU.Mean,
+					ProcessMean: float64(res.TotalProcesses.Mean),
+					ProcessPeak: float64(res.TotalProcesses.Peak),
+					BrowserProcMean: float64(res.BrowserProcesses.Mean),
+					BrowserProcPeak: float64(res.BrowserProcesses.Peak),
 					Violations: ev.Violations,
 				})
 			}
@@ -243,7 +256,6 @@ func cmdSweep(args []string) error {
 			prevPeakRAM = levelPeak
 		}
 	}
-sweepDone:
 
 	// Persist the sweep evaluation for later analysis.
 	dir := filepath.Join(*resultsDir, "sweeps")
@@ -261,7 +273,7 @@ sweepDone:
 	fmt.Printf("sweep evaluation written to %s\n", path)
 
 	// Milestone section 18: write scaling + resource summaries.
-	if err := writeSweepSummaries(*resultsDir); err != nil {
+	if err := writeSweepSummaries(*resultsDir, sweepRec); err != nil {
 		return fmt.Errorf("write sweep summaries: %w", err)
 	}
 	return nil
@@ -269,11 +281,18 @@ sweepDone:
 
 // writeSweepSummaries aggregates each run's resource_summary.json into
 // scaling-summary.csv and resource-summary.csv under results/summaries.
-func writeSweepSummaries(resultsDir string) error {
+// Saturation verdicts come from the sweep evaluation so the CSV and the
+// sweep JSON agree (milestone section 18).
+func writeSweepSummaries(resultsDir string, cells []sweepCellResult) error {
 	rawDir := filepath.Join(resultsDir, "raw")
 	entries, err := os.ReadDir(rawDir)
 	if err != nil {
 		return err
+	}
+	// Map (scenario, concurrency) -> saturated from the sweep evaluation.
+	satMap := map[string]bool{}
+	for _, c := range cells {
+		satMap[fmt.Sprintf("%s/%d", c.Scenario, c.Concurrency)] = c.Saturated
 	}
 	var resRows []results.ResourceRow
 	var scaleRows []results.ScalingRow
@@ -311,7 +330,7 @@ func writeSweepSummaries(resultsDir string) error {
 			BrowserProcessMean: float64(rs.BrowserProcesses.Mean),
 			Contexts:          rs.Contexts,
 			FailureRate:       failureRate(&s),
-			Saturated:         rs.ArchitectureRSSDelta > 0 && s.AvgCPU > 90,
+			Saturated:         satMap[fmt.Sprintf("%s/%d", s.Scenario, s.Concurrency)],
 		})
 	}
 	summaryDir := filepath.Join(resultsDir, "summaries")
@@ -356,6 +375,7 @@ func accumulate(acc, s *results.Summary) {
 	acc.TotalTasks += s.TotalTasks
 	acc.Latency.P95 += s.Latency.P95
 	acc.Latency.P99 += s.Latency.P99
+	acc.Latency.Median += s.Latency.Median
 	acc.AvgCPU += s.AvgCPU
 	acc.AvgRAMBytes += s.AvgRAMBytes
 	acc.TaskRSSBytes.Mean += s.TaskRSSBytes.Mean
@@ -367,6 +387,7 @@ type sweepCellResult struct {
 	Concurrency int      `json:"concurrency"`
 	Rep         int      `json:"rep,omitempty"`
 	Baseline    bool     `json:"baseline,omitempty"`
+	P50         float64  `json:"p50"`
 	P95         float64  `json:"p95"`
 	P99         float64  `json:"p99,omitempty"`
 	Failed      int      `json:"failed,omitempty"`
@@ -374,6 +395,15 @@ type sweepCellResult struct {
 	CPU         float64  `json:"cpu_percent,omitempty"`
 	RSSMeanMB   float64  `json:"rss_mean_mb,omitempty"`
 	RSSP95MB    float64  `json:"rss_p95_mb,omitempty"`
+	BrowserRSSMeanMB float64 `json:"browser_rss_mean_mb,omitempty"`
+	BrowserRSSP95MB  float64 `json:"browser_rss_p95_mb,omitempty"`
+	Throughput  float64  `json:"throughput,omitempty"`
+	BenchmarkCPUMean float64 `json:"benchmark_cpu_mean,omitempty"`
+	BrowserCPUMean   float64 `json:"browser_cpu_mean,omitempty"`
+	ProcessMean float64  `json:"process_mean,omitempty"`
+	ProcessPeak float64  `json:"process_peak,omitempty"`
+	BrowserProcMean float64 `json:"browser_process_mean,omitempty"`
+	BrowserProcPeak float64 `json:"browser_process_peak,omitempty"`
 	NotRun      bool     `json:"not_run,omitempty"`
 	Saturated   bool     `json:"saturated,omitempty"`
 	Violations  []string `json:"violations,omitempty"`
@@ -386,14 +416,6 @@ func levelIdx(levels []string, s string) int {
 		}
 	}
 	return len(levels) - 1
-}
-
-func atoiOr(s string, def int) int {
-	n, err := strconv.Atoi(s)
-	if err != nil {
-		return def
-	}
-	return n
 }
 
 func parseList(s string) []string {
@@ -547,6 +569,14 @@ func countSaturated(cells []sweepCellResult) int {
 	return n
 }
 
+// loadResource reads a run's resource_summary.json, returning an empty
+// summary if absent (pre-milestone runs).
+func loadResource(resultsDir string, runID results.RunID) results.ResourceSummary {
+	var rs results.ResourceSummary
+	_ = readJSONFile(filepath.Join(resultsDir, "raw", string(runID), "resource_summary.json"), &rs)
+	return rs
+}
+
 // cmdReport writes a markdown report from the latest sweep evaluations and
 // run summaries (spec section 35).
 func cmdReport(args []string) error {
@@ -566,19 +596,26 @@ func cmdReport(args []string) error {
 		var cells []sweepCellResult
 		if err := readJSONFile(filepath.Join(sweepsDir, latest.Name()), &cells); err == nil {
 			b.WriteString("## Sweep: " + strings.TrimSuffix(latest.Name(), ".json") + "\n\n")
-			b.WriteString("| scenario | concurrency | rep | p95 (s) | p99 (s) | failed | cpu% | rss mean (MB) | rss p95 (MB) | saturated |\n")
-			b.WriteString("|---|---|---|---|---|---|---|---|---|---|\n")
+			b.WriteString("| scenario | conc | rep | tput/s | p50 | p95 | p99 | failed | cpu% | rss mean (MB) | browser rss (MB) | procs | browser procs | saturated |\n")
+			b.WriteString("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n")
 			for _, c := range cells {
 				sat := ""
 				if c.Saturated {
 					sat = "**" + strings.Join(c.Violations, ",") + "**"
 				}
-				// Older sweep files predate the RSS fields; render them as
-				// "n/a" instead of misleading zeros.
-				rssMean, rssP95 := "n/a", "n/a"
+				// Older sweep files predate the RSS/process fields; render
+				// them as "n/a" instead of misleading zeros.
+				rssMean, brss := "n/a", "n/a"
 				if c.RSSMeanMB > 0 {
 					rssMean = fmt.Sprintf("%.0f", c.RSSMeanMB)
-					rssP95 = fmt.Sprintf("%.0f", c.RSSP95MB)
+				}
+				if c.BrowserRSSMeanMB > 0 {
+					brss = fmt.Sprintf("%.0f", c.BrowserRSSMeanMB)
+				}
+				procs, bprocs := "n/a", "n/a"
+				if c.ProcessMean > 0 {
+					procs = fmt.Sprintf("%.0f", c.ProcessMean)
+					bprocs = fmt.Sprintf("%.0f", c.BrowserProcMean)
 				}
 				// A baseline cell (Rep 0) is a single averaged sample; P99
 				// from one observation is not meaningful (milestone section
@@ -587,9 +624,14 @@ func cmdReport(args []string) error {
 				if c.Rep == 0 && c.P99 == 0 {
 					p99 = "N/A"
 				}
-				b.WriteString(fmt.Sprintf("| %s | %d | %d | %.4f | %s | %d | %.1f | %s | %s | %s |\n",
-					c.Scenario, c.Concurrency, c.Rep, c.P95, p99, c.Failed, c.CPU,
-					rssMean, rssP95, sat))
+				p50 := fmt.Sprintf("%.4f", c.P50)
+				tput := ""
+				if c.Throughput > 0 {
+					tput = fmt.Sprintf("%.1f", c.Throughput)
+				}
+				b.WriteString(fmt.Sprintf("| %s | %d | %d | %s | %s | %.4f | %s | %d | %.1f | %s | %s | %s | %s | %s |\n",
+					c.Scenario, c.Concurrency, c.Rep, tput, p50, c.P95, p99, c.Failed, c.CPU,
+					rssMean, brss, procs, bprocs, sat))
 			}
 			b.WriteString("\n")
 		}
@@ -624,6 +666,107 @@ func cmdReport(args []string) error {
 		return err
 	}
 	fmt.Printf("report written to %s\n", out)
+
+	// Milestone section 22: detailed resource/topology/scaling reports.
+	if err := writeDetailedReports(resultsDir); err != nil {
+		return fmt.Errorf("write detailed reports: %w", err)
+	}
+	return nil
+}
+
+// writeDetailedReports writes resource-report.md, topology-report.md, and
+// scaling-report.md under results/reports from the per-run resource
+// summaries (milestone section 22).
+func writeDetailedReports(resultsDir string) error {
+	rawDir := filepath.Join(resultsDir, "raw")
+	entries, err := os.ReadDir(rawDir)
+	if err != nil {
+		return err
+	}
+	type runRes struct {
+		ID       string
+		Scenario string
+		Summary  results.Summary
+		Res      results.ResourceSummary
+	}
+	var runs []runRes
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		var rs results.ResourceSummary
+		if err := readJSONFile(filepath.Join(rawDir, e.Name(), "resource_summary.json"), &rs); err != nil {
+			continue
+		}
+		var s results.Summary
+		if err := readJSONFile(filepath.Join(rawDir, e.Name(), "summary.json"), &s); err != nil {
+			continue
+		}
+		runs = append(runs, runRes{ID: e.Name(), Scenario: s.Scenario, Summary: s, Res: rs})
+	}
+	repDir := filepath.Join(resultsDir, "reports")
+	if err := os.MkdirAll(repDir, 0o755); err != nil {
+		return err
+	}
+
+	// resource-report.md
+	var rb strings.Builder
+	rb.WriteString("# Resource Report\n\n")
+	rb.WriteString("| run | scenario | conc | rss total mean/p95/peak (MB) | browser rss mean (MB) | controller rss (MB) | task rss mean (MB) | bench cpu mean |\n")
+	rb.WriteString("|---|---|---|---|---|---|---|---|\n")
+	for _, r := range runs {
+		rb.WriteString(fmt.Sprintf("| %s | %s | %d | %d/%d/%d | %d | %d | %d | %.1f |\n",
+			r.ID, r.Scenario, r.Summary.Concurrency,
+			r.Res.TotalRSS.Mean/1048576, r.Res.TotalRSS.P95/1048576, r.Res.TotalRSS.Peak/1048576,
+			r.Res.BrowserRSS.Mean/1048576, r.Res.ControllerRSS.Mean/1048576,
+			r.Res.TaskRSS.Mean/1048576, r.Res.BenchmarkCPU.Mean))
+	}
+	if err := os.WriteFile(filepath.Join(repDir, "resource-report.md"), []byte(rb.String()), 0o644); err != nil {
+		return err
+	}
+
+	// topology-report.md
+	var tb strings.Builder
+	tb.WriteString("# Topology Report\n\n")
+	tb.WriteString("| run | scenario | conc | procs mean/peak | browser mean/peak | renderer | utility | gpu | browsers | contexts | pages |\n")
+	tb.WriteString("|---|---|---|---|---|---|---|---|---|---|---|\n")
+	for _, r := range runs {
+		tb.WriteString(fmt.Sprintf("| %s | %s | %d | %d/%d | %d/%d | %d | %d | %d | %d | %d | %d |\n",
+			r.ID, r.Scenario, r.Summary.Concurrency,
+			r.Res.TotalProcesses.Mean, r.Res.TotalProcesses.Peak,
+			r.Res.BrowserProcesses.Mean, r.Res.BrowserProcesses.Peak,
+			r.Res.RendererProcesses.Mean, r.Res.UtilityProcesses.Mean, r.Res.GPUProcesses.Mean,
+			r.Res.Browsers, r.Res.Contexts, r.Res.Pages))
+	}
+	if err := os.WriteFile(filepath.Join(repDir, "topology-report.md"), []byte(tb.String()), 0o644); err != nil {
+		return err
+	}
+
+	// scaling-report.md (per scenario, ordered by concurrency).
+	var sb strings.Builder
+	sb.WriteString("# Scaling Report\n\n")
+	byScenario := map[string][]runRes{}
+	for _, r := range runs {
+		byScenario[r.Scenario] = append(byScenario[r.Scenario], r)
+	}
+	for scenario, sc := range byScenario {
+		sb.WriteString("## " + scenario + "\n\n")
+		sb.WriteString("| concurrency | throughput/s | p50 | p95 | p99 | rss total mean (MB) | browser rss mean (MB) | procs | browser procs |\n")
+		sb.WriteString("|---|---|---|---|---|---|---|---|---|\n")
+		for _, r := range sc {
+			sb.WriteString(fmt.Sprintf("| %d | %.1f | %.4f | %.4f | %.4f | %d | %d | %d | %d |\n",
+				r.Summary.Concurrency, r.Summary.Throughput,
+				r.Summary.Latency.Median, r.Summary.Latency.P95, r.Summary.Latency.P99,
+				r.Res.TotalRSS.Mean/1048576, r.Res.BrowserRSS.Mean/1048576,
+				r.Res.TotalProcesses.Mean, r.Res.BrowserProcesses.Mean))
+		}
+		sb.WriteString("\n")
+	}
+	if err := os.WriteFile(filepath.Join(repDir, "scaling-report.md"), []byte(sb.String()), 0o644); err != nil {
+		return err
+	}
+
+	fmt.Printf("detailed reports written to %s/\n", repDir)
 	return nil
 }
 

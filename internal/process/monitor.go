@@ -22,6 +22,9 @@ type Monitor struct {
 	// Sink, when set, receives every snapshot (including the seed) so an
 	// aggregator can consume it without coupling to the monitor.
 	Sink func(Snapshot)
+	// Classify, when set, assigns roles to each snapshot before it is stored
+	// and sent to the sink (so process_metrics.csv carries process_role).
+	Classify func(*Snapshot)
 }
 
 // NewMonitor builds a monitor with the given snapshot interval.
@@ -40,6 +43,9 @@ func (m *Monitor) Run(ctx context.Context) func() {
 		defer wg.Done()
 		// Seed once so the first tick carries real CPU deltas.
 		if snap, err := m.collector.Sample(); err == nil {
+			if m.Classify != nil {
+				m.Classify(&snap)
+			}
 			m.mu.Lock()
 			m.snapshots = append(m.snapshots, snap)
 			m.mu.Unlock()
@@ -57,6 +63,9 @@ func (m *Monitor) Run(ctx context.Context) func() {
 				snap, err := m.collector.Sample()
 				if err != nil {
 					continue
+				}
+				if m.Classify != nil {
+					m.Classify(&snap)
 				}
 				m.mu.Lock()
 				m.snapshots = append(m.snapshots, snap)
@@ -84,8 +93,8 @@ func (m *Monitor) WriteCSV(dir string) error {
 	defer f.Close()
 	w := csv.NewWriter(f)
 	if err := w.Write([]string{
-		"timestamp", "pid", "ppid", "name", "cpu_percent", "rss_bytes",
-		"thread_count", "access_denied",
+		"timestamp", "pid", "ppid", "name", "process_role", "cpu_percent",
+		"rss_bytes", "thread_count", "access_denied",
 	}); err != nil {
 		return err
 	}
@@ -97,6 +106,7 @@ func (m *Monitor) WriteCSV(dir string) error {
 				strconv.FormatUint(uint64(e.PID), 10),
 				strconv.FormatUint(uint64(e.PPID), 10),
 				e.Name,
+				string(e.Role),
 				strconv.FormatFloat(e.CPUPercent, 'f', 3, 64),
 				strconv.FormatUint(e.RSSBytes, 10),
 				strconv.FormatUint(uint64(e.ThreadCount), 10),
