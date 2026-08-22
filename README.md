@@ -192,16 +192,28 @@ cd target/frontend && npm install --include=dev && npm run build
 | Command | Output | What it gives you |
 |---|---|---|
 | `bench summarize` | console table | one row per run: throughput, completed, failed, p95 |
-| `bench report` | `results/report.md` | markdown with the latest sweep table (per-cell p95/p99/failed/cpu/rss/saturation) plus all runs |
+| `bench report` | `results/report.md` | markdown with the latest sweep table (throughput/p50/p95/p99/cpu/rss/procs/saturation) plus all runs |
+| `bench resources --run <ID>` | console | per-run memory (baseline, total/browser RSS), CPU splits, process counts, lifecycle counts, derived metrics |
+| `bench topology --run <ID>` | console | per-run process topology (browser/renderer/utility/gpu/controller counts) |
+| `bench analyze-run --run <ID>` | console | deep-dive: latency, throughput, task RSS + full resource view |
+| `bench analyze-sweep --sweep <FILE>` | console | per-scenario saturation summary across a sweep |
 | `bench status` | console | list of recorded run directories |
-| raw files | `results/raw/<run-id>/` | `metadata.json`, `summary.json`, `system_metrics.csv`, `process_metrics.csv`, `browser_metrics.csv`, `hybrid_metrics.csv`, `task_metrics.csv`, `task_rss_metrics.csv` |
+| raw files | `results/raw/<run-id>/` | `metadata.json`, `summary.json`, `resource_summary.json`, `system_metrics.csv`, `process_metrics.csv`, `browser_metrics.csv`, `hybrid_metrics.csv`, `task_metrics.csv`, `task_rss_metrics.csv` |
 | sweep verdicts | `results/sweeps/<ts>.json` | per-cell saturation evaluation for later analysis |
+| summary CSVs | `results/summaries/` | `resource-summary.csv`, `scaling-summary.csv` (machine-readable) |
+| detailed reports | `results/reports/` | `resource-report.md`, `topology-report.md`, `scaling-report.md` |
 | `--metrics-addr :9091` | Prometheus `/metrics` | live gauges (throughput, latency, CPU, RAM, failures) for scraping |
 
 `summary.json` per run includes: throughput, completed/failed, latency
 distribution (min/max/mean/median/p90/p95/p99/stddev), browser launch +
 context creation + CDP connect latencies, per-task RSS (`task_rss_bytes`),
 peak/avg CPU and RAM, escalation count, and failure breakdown.
+
+`resource_summary.json` per run includes: baseline RSS, architecture RSS
+delta, total/browser/controller/target RSS series (mean/p50/p95/peak), CPU
+splits by role, process counts (total/browser/renderer/utility/gpu),
+measured lifecycle counts (browsers/contexts/pages), and derived scaling
+metrics (memory per task, throughput per CPU, throughput per GB).
 
 ## Layout
 
@@ -221,6 +233,7 @@ peak/avg CPU and RAM, escalation count, and failure breakdown.
 - `docs/methodology.md` — measurement model and known limitations
 - `docs/benchmark-protocol.md` — the reproducible run procedure
 - `docs/reproducibility.md` — pinning and clean-machine reproduction
+- `docs/milestone-completion.md` — measurement-integrity milestone results
 - `docs/cef.md` — why scenario G is not implemented
 
 ## License

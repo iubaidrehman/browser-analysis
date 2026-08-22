@@ -59,9 +59,25 @@ failure>2%) are flagged SATURATED; verdicts persist to `results/sweeps/`.
 ## Analysis
 
 ```sh
-go run ./cmd/bench summarize   # console table of all runs
-go run ./cmd/bench report      # markdown report (results/report.md)
+go run ./cmd/bench summarize                      # console table of all runs
+go run ./cmd/bench report                         # markdown report (results/report.md + results/reports/*.md)
+go run ./cmd/bench resources --run <RUN_ID>       # per-run memory/CPU/process/lifecycle accounting
+go run ./cmd/bench topology --run <RUN_ID>        # per-run process topology
+go run ./cmd/bench analyze-run --run <RUN_ID>     # deep-dive on one run
+go run ./cmd/bench analyze-sweep --sweep <FILE>   # saturation summary across a sweep
 ```
+
+`bench report` writes the main `results/report.md` plus three detailed
+reports under `results/reports/`: `resource-report.md` (RSS by role per run),
+`topology-report.md` (process counts per run), and `scaling-report.md`
+(throughput/latency/RSS vs concurrency per scenario). Machine-readable
+summaries land in `results/summaries/` (`resource-summary.csv`,
+`scaling-summary.csv`).
+
+Each run directory under `results/raw/<run-id>/` contains `summary.json`
+(throughput, latency percentiles, task RSS) and `resource_summary.json`
+(baseline RSS, architecture delta, browser/total RSS series, CPU splits,
+process counts, measured browsers/contexts/pages).
 
 ## Cleanup (spec section 30)
 
