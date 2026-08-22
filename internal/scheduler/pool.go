@@ -168,6 +168,7 @@ func (p *Pool) Submit(t *Task) bool {
 		return false
 	}
 	p.pending.Add(1)
+	p.rec.TaskCreated()
 	t.Queued = time.Now()
 	p.rec.TaskQueued()
 	p.jobs <- t

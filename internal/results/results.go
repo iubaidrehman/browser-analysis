@@ -321,9 +321,6 @@ func BuildSummary(rec *metrics.Recorder, cfg config.Config, workflowName string,
 
 	c := rec.Snapshot()
 	total := c.Created
-	if total == 0 {
-		total = c.Complete + c.Failed
-	}
 	measurementSec := float64(cfg.Timing.MeasurementSeconds)
 	// Use the actual measurement wall time when the driver recorded it (the
 	// drain after the deadline can extend the window beyond the configured
