@@ -66,6 +66,23 @@ Runs persistent-contexts at concurrency 100, 200, 300, 400, 500, 750, 1000
 (1 rep each, 14 GB adaptive safety ceiling). Override with
 `-Concurrency`, `-Repetitions`, `-MaxRSSGB`.
 
+## Full matrix + reports (one-command flow)
+
+```sh
+# 1. Full matrix: http, persistent-contexts, headless at 1..1000 (3 reps)
+powershell -File scripts/run-full-matrix.ps1
+
+# 2. All reports from the runs
+powershell -File scripts/generate-reports.ps1
+```
+
+`run-full-matrix.ps1` runs http, persistent-contexts, and headless at
+concurrency 1, 5, 10, 25, 50, 100, 250, 500, 750, 1000 with 3 reps each and
+a 14 GB adaptive safety ceiling. `generate-reports.ps1` writes the main
+report (`results/report.md`), the detailed reports (`results/reports/`),
+and the summary CSVs (`results/summaries/`), then prints the console
+summary.
+
 ## Analysis
 
 ```sh
