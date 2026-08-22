@@ -15,6 +15,7 @@ import (
 	"bcrl/internal/cdp"
 	"bcrl/internal/config"
 	"bcrl/internal/contexts"
+	"bcrl/internal/exporter"
 	"bcrl/internal/httpworker"
 	"bcrl/internal/hybrid"
 	"bcrl/internal/metrics"
@@ -33,6 +34,9 @@ type Options struct {
 	Mode       scheduler.Mode
 	ResultsDir string
 	Logger     *slog.Logger
+	// MetricsAddr, when non-empty, starts an HTTP /metrics endpoint (Prometheus)
+	// for this run.
+	MetricsAddr string
 }
 
 // Run executes a single benchmark run and persists raw results.
@@ -44,6 +48,12 @@ func Run(ctx context.Context, opts Options) (*results.Summary, error) {
 
 	cfg := opts.Config
 	rec := metrics.NewRecorder()
+
+	// Publish to the shared Prometheus exporter if one is running.
+	var exp *exporter.Exporter
+	if opts.MetricsAddr != "" {
+		exp = exporter.Shared(opts.MetricsAddr)
+	}
 
 	// Physical concurrency is decoupled from logical concurrency: workers are
 	// the resource limit; tasks are the work (spec section 25). Browser
@@ -218,7 +228,7 @@ func Run(ctx context.Context, opts Options) (*results.Summary, error) {
 	}
 
 	// Persist raw results (partial on cancellation).
-	dir, runID, werr := results.WriteRun(opts.ResultsDir, rec, cfg, opts.Workflow, opts.Repetition)
+	dir, runID, werr := results.WriteRun(opts.ResultsDir, rec, cfg, opts.Workflow, opts.Repetition, string(opts.Mode))
 	if werr != nil {
 		return nil, fmt.Errorf("write results: %w", werr)
 	}
@@ -243,6 +253,11 @@ func Run(ctx context.Context, opts Options) (*results.Summary, error) {
 	summary.AvgRAMBytes = avgRAM
 	if werr := results.WriteSummary(dir, summary); werr != nil {
 		return nil, fmt.Errorf("write summary: %w", werr)
+	}
+
+	// Publish to Prometheus if an endpoint was requested.
+	if exp != nil {
+		exp.Record(summary)
 	}
 
 	if cancelled {

@@ -9,16 +9,18 @@ does not contact external services.
 
 ## Status
 
-**Phase 11** — concurrency sweeps implemented:
+**Phase 13** — reproducibility hardening implemented:
 
-- `bench sweep --scenarios http,headless,... --concurrency 1,10,25,... --workflow complex --repetitions 5`
-- Baseline = lowest concurrency level averaged across repetitions
-- Saturation detection (CPU>90%, P95>2× baseline, P99>3× baseline,
-  failure rate>2%) with per-cell verdicts persisted to `results/sweeps/`
+- `metadata.json` records the git commit (with `-dirty` marker) and a config
+  hash (including the experiment mode) for every run
+- Go/Node versions auto-detected; Playwright browser pinned via go.mod
+- `bench run --metrics-addr :9091` serves a Prometheus `/metrics` endpoint
+  with per-run gauges (throughput, latency, CPU, RAM, failures)
 
-Phases 3-11 (http, headed, headless, persistent-contexts, cdp, hybrid,
-telemetry, process-tree, sweeps) remain implemented. CEF (G) is explicitly
-documented as not-implemented — see `docs/cef.md`.
+All spec phases are complete except CEF (G), which is explicitly documented
+as not-implemented — see `docs/cef.md`. Phases 1-12 cover the repository,
+synthetic target, http/headed/headless/persistent-contexts/cdp/hybrid
+scenarios, telemetry, process-tree monitoring, and concurrency sweeps.
 
 ## Quick start
 

@@ -100,11 +100,12 @@ func cmdValidate(args []string) error {
 
 // runOptions carries parsed CLI flags plus the loaded config.
 type runOptions struct {
-	Config     config.Config
-	Workflow   workflow.Workflow
-	Mode       scheduler.Mode
-	ResultsDir string
-	Repetition int
+	Config      config.Config
+	Workflow    workflow.Workflow
+	Mode        scheduler.Mode
+	ResultsDir  string
+	Repetition  int
+	MetricsAddr string
 }
 
 // runConfigFromFlags parses shared run flags and loads the YAML config,
@@ -121,6 +122,7 @@ func runConfigFromFlags(args []string) (runOptions, error) {
 	mode := fs.String("mode", "fixed", "experiment mode: fixed|ramp|step|steady|spike")
 	resultsDir := fs.String("results", "results", "results root directory")
 	repeat := fs.Int("repeat", 1, "repetition number for run_id")
+	metricsAddr := fs.String("metrics-addr", "", "optional Prometheus /metrics listen address")
 	if err := fs.Parse(args); err != nil {
 		return runOptions{}, err
 	}
@@ -158,10 +160,11 @@ func runConfigFromFlags(args []string) (runOptions, error) {
 	}
 
 	return runOptions{
-		Config:     cfg,
-		Workflow:   wf,
-		Mode:       scheduler.Mode(*mode),
-		ResultsDir: *resultsDir,
-		Repetition: *repeat,
+		Config:      cfg,
+		Workflow:    wf,
+		Mode:        scheduler.Mode(*mode),
+		ResultsDir:  *resultsDir,
+		Repetition:  *repeat,
+		MetricsAddr: *metricsAddr,
 	}, nil
 }

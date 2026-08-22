@@ -30,17 +30,25 @@ func cmdRun(args []string) error {
 	log := logging.Default()
 
 	summary, err := controller.Run(context.Background(), controller.Options{
-		Config:     opts.Config,
-		Workflow:   opts.Workflow,
-		Mode:       opts.Mode,
-		ResultsDir: opts.ResultsDir,
-		Repetition: opts.Repetition,
-		Logger:     log,
+		Config:      opts.Config,
+		Workflow:    opts.Workflow,
+		Mode:        opts.Mode,
+		ResultsDir:  opts.ResultsDir,
+		Repetition:  opts.Repetition,
+		MetricsAddr: opts.MetricsAddr,
+		Logger:      log,
 	})
 	if err != nil {
 		return err
 	}
 	printSummary(summary)
+
+	// Keep the Prometheus endpoint alive until interrupted so a scraper can
+	// collect the recorded metrics.
+	if opts.MetricsAddr != "" {
+		fmt.Printf("serving metrics on %s/metrics (Ctrl+C to stop)\n", opts.MetricsAddr)
+		select {}
+	}
 	return nil
 }
 

@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"time"
 
+	"bcrl/internal/buildinfo"
 	"bcrl/internal/config"
 	"bcrl/internal/metrics"
 	"bcrl/internal/stats"
@@ -77,6 +78,7 @@ type Summary struct {
 	RunID          RunID           `json:"run_id"`
 	Scenario       string          `json:"scenario"`
 	Workflow       string          `json:"workflow"`
+	Concurrency    int             `json:"concurrency"`
 	TotalTasks     int             `json:"total_tasks"`
 	Completed      int             `json:"completed_tasks"`
 	Failed         int             `json:"failed_tasks"`
@@ -114,7 +116,7 @@ func WriteJSON(dir string, name string, v any) error {
 
 // WriteRun persists all raw data files for a run and returns the directory
 // and the run ID.
-func WriteRun(resultsDir string, rec *metrics.Recorder, cfg config.Config, wf workflow.Workflow, repetition int) (string, RunID, error) {
+func WriteRun(resultsDir string, rec *metrics.Recorder, cfg config.Config, wf workflow.Workflow, repetition int, mode string) (string, RunID, error) {
 	runID := NewRunID(cfg.Scenario, cfg.Concurrency.LogicalTasks, repetition)
 	dir := filepath.Join(resultsDir, "raw", string(runID))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -137,7 +139,9 @@ func WriteRun(resultsDir string, rec *metrics.Recorder, cfg config.Config, wf wo
 			ContextCount: cfg.Contexts.Count,
 			WorkerCount:  workerCountFor(cfg),
 		},
-		StartedAt: time.Now().UTC(),
+		StartedAt:  time.Now().UTC(),
+		GitCommit:  buildinfo.GitCommit(),
+		ConfigHash: buildinfo.ConfigHash(cfg, mode),
 	}
 	if err := WriteJSON(dir, "metadata.json", meta); err != nil {
 		return "", "", err
@@ -300,6 +304,7 @@ func BuildSummary(rec *metrics.Recorder, cfg config.Config, workflowName string,
 		RunID:          runID,
 		Scenario:       cfg.Scenario,
 		Workflow:       workflowName,
+		Concurrency:    cfg.Concurrency.LogicalTasks,
 		TotalTasks:     total,
 		Completed:      c.Complete,
 		Failed:         c.Failed,
@@ -343,6 +348,7 @@ func environmentInfo() Environment {
 // are filled in by later phases.
 func softwareInfo() Software {
 	return Software{
-		GoVersion: runtime.Version(),
+		GoVersion:   buildinfo.GoVersion(),
+		NodeVersion: buildinfo.NodeVersion(),
 	}
 }
