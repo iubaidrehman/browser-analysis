@@ -84,7 +84,12 @@ func (d *Driver) runWithWarmup(ctx context.Context, cfg RunConfig, run func(time
 		d.rec.Reset()
 	}
 	d.log.Info("measurement", "seconds", cfg.Measurement.Seconds())
-	return run(cfg.Measurement)
+	start := time.Now()
+	err := run(cfg.Measurement)
+	// Record the actual wall time: the drain after the deadline extends the
+	// window, and throughput must divide by what really elapsed.
+	d.rec.SetMeasurementElapsed(time.Since(start))
+	return err
 }
 
 // newTask builds a fresh task for the closed loop.
@@ -95,17 +100,27 @@ func (d *Driver) newTask(id int, cfg RunConfig) *Task {
 // runFixed keeps n logical tasks in flight continuously for the given
 // duration. Each task re-submits after completion, so the in-flight count
 // stays at n (a closed loop). Physical concurrency is bounded by the pool's
-// worker count; logical concurrency larger than that simply saturates the
-// pool (spec section 25). After the deadline it drains in-flight tasks so no
-// completed work is dropped from the summary.
+// worker count: a token semaphore caps concurrent in-flight tasks at the
+// worker count, so logical concurrency beyond that queues (spec section 25).
+// After the deadline it drains in-flight tasks so no completed work is
+// dropped from the summary.
 func (d *Driver) runFixed(ctx context.Context, cfg RunConfig, n int, duration time.Duration) error {
 	if n < 1 {
 		return fmt.Errorf("concurrency must be >= 1, got %d", n)
 	}
+	workerCount := d.pool.WorkerCount()
+	if workerCount < 1 {
+		workerCount = n
+	}
 	deadline := time.Now().Add(duration)
 
-	// Bound the number of in-flight logical tasks by the number of workers.
-	// Extra logical tasks queue up naturally on the jobs channel.
+	// Token semaphore: at most workerCount tasks in flight, regardless of
+	// how many logical-task goroutines are spinning.
+	tokens := make(chan struct{}, workerCount)
+	for i := 0; i < workerCount; i++ {
+		tokens <- struct{}{}
+	}
+
 	var wg sync.WaitGroup
 	wg.Add(n)
 	for i := 0; i < n; i++ {
@@ -121,18 +136,29 @@ func (d *Driver) runFixed(ctx context.Context, cfg RunConfig, n int, duration ti
 				if time.Now().After(deadline) {
 					return
 				}
+				// Acquire a slot: block until a worker slot is free. A
+				// cancelled context releases the slot.
+				select {
+				case <-tokens:
+				case <-ctx.Done():
+					d.rec.TaskCancelled()
+					return
+				}
 				// A fresh task per iteration: reusing the same Task across
 				// iterations would leave its done channel closed, causing the
 				// pool's markFinished to panic on the second close.
 				t := d.newTask(i, cfg)
 				t.Created = time.Now()
 				if !d.pool.Submit(t) {
-					return // pool closed; stop submitting
+					tokens <- struct{}{} // release slot on pool close
+					return
 				}
 				select {
 				case <-t.Done():
+					tokens <- struct{}{} // release slot after completion
 				case <-ctx.Done():
 					d.rec.TaskCancelled()
+					tokens <- struct{}{}
 					return
 				}
 			}

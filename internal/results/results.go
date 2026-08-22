@@ -325,6 +325,12 @@ func BuildSummary(rec *metrics.Recorder, cfg config.Config, workflowName string,
 		total = c.Complete + c.Failed
 	}
 	measurementSec := float64(cfg.Timing.MeasurementSeconds)
+	// Use the actual measurement wall time when the driver recorded it (the
+	// drain after the deadline can extend the window beyond the configured
+	// duration), falling back to the configured value.
+	if el := rec.MeasurementElapsed(); el > 0 {
+		measurementSec = el
+	}
 	throughput := float64(c.Complete) / measurementSec
 	if measurementSec == 0 {
 		throughput = 0

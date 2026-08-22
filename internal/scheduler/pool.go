@@ -156,6 +156,11 @@ func (p *Pool) SetWorkers(workers []Worker) {
 	p.workers = workers
 }
 
+// WorkerCount returns the number of worker slots in the pool.
+func (p *Pool) WorkerCount() int {
+	return len(p.workers)
+}
+
 // Submit enqueues a task for execution. The caller should wait on t.Done().
 // Returns false if the pool is closed and the task was not accepted.
 func (p *Pool) Submit(t *Task) bool {

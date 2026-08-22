@@ -29,6 +29,11 @@ type Recorder struct {
 	// Lifecycle event log (task/browser/context/page timestamps).
 	lifecycle []LifecycleEvent
 
+	// measurementElapsed is the actual wall time of the measurement window,
+	// which can exceed the configured duration when the driver drains
+	// in-flight tasks after the deadline.
+	measurementElapsed float64
+
 	tasksCreated  int
 	tasksQueued   int
 	tasksActive   int
@@ -100,6 +105,21 @@ func (r *Recorder) Reset() {
 	r.workflowFailed = 0
 	r.escalations = 0
 	r.failures = make(map[string]int)
+}
+
+// SetMeasurementElapsed records the actual wall time of the measurement
+// window (seconds), used for honest throughput computation.
+func (r *Recorder) SetMeasurementElapsed(d time.Duration) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.measurementElapsed = d.Seconds()
+}
+
+// MeasurementElapsed returns the recorded measurement wall time in seconds.
+func (r *Recorder) MeasurementElapsed() float64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.measurementElapsed
 }
 
 // RecordBrowserLaunch adds a browser startup duration (seconds).
