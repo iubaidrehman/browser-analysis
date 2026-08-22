@@ -177,12 +177,15 @@ func cmdSweep(args []string) error {
 		baseAcc.Latency.P99 /= float64(baseCount)
 		baseAcc.AvgCPU /= float64(baseCount)
 		baseAcc.AvgRAMBytes /= uint64(baseCount)
+		baseAcc.TaskRSSBytes.Mean /= float64(baseCount)
 		baseline := &baseAcc
-		fmt.Printf("sweep %-20s concurrency=%-4d baseline p95=%.3fs cpu=%.1f%% (avg of %d)\n",
-			scenario, baseLvl, baseline.Latency.P95, baseline.AvgCPU, baseCount)
+		fmt.Printf("sweep %-20s concurrency=%-4d baseline p95=%.3fs cpu=%.1f%% rss=%.0fMB (avg of %d)\n",
+			scenario, baseLvl, baseline.Latency.P95, baseline.AvgCPU,
+			baseline.TaskRSSBytes.Mean/1048576, baseCount)
 		sweepRec = append(sweepRec, sweepCellResult{
 			Scenario: scenario, Concurrency: baseLvl, Baseline: true,
 			P95: baseline.Latency.P95, CPU: baseline.AvgCPU,
+			RSSMeanMB: baseline.TaskRSSBytes.Mean / 1048576,
 		})
 
 		for _, lvlStr := range levels[1:] {
@@ -201,14 +204,17 @@ func cmdSweep(args []string) error {
 				if ev.Saturated {
 					status = "SATURATED: " + strings.Join(ev.Violations, ",")
 				}
-				fmt.Printf("sweep %-20s concurrency=%-4d p95=%.3fs failed=%d rate=%.2f%% -> %s\n",
+				fmt.Printf("sweep %-20s concurrency=%-4d p95=%.3fs failed=%d rss=%.0fMB rate=%.2f%% -> %s\n",
 					scenario, lvl, summary.Latency.P95, summary.Failed,
+					summary.TaskRSSBytes.Mean/1048576,
 					float64(summary.Failed)/float64(max(summary.TotalTasks, 1))*100, status)
 				sweepRec = append(sweepRec, sweepCellResult{
 					Scenario: scenario, Concurrency: lvl, Rep: r,
 					P95: summary.Latency.P95, P99: summary.Latency.P99,
 					Failed: summary.Failed, Total: summary.TotalTasks,
 					CPU: summary.AvgCPU, Saturated: ev.Saturated,
+					RSSMeanMB: summary.TaskRSSBytes.Mean / 1048576,
+					RSSP95MB:  summary.TaskRSSBytes.P95 / 1048576,
 					Violations: ev.Violations,
 				})
 			}
@@ -255,6 +261,7 @@ func accumulate(acc, s *results.Summary) {
 	acc.Latency.P99 += s.Latency.P99
 	acc.AvgCPU += s.AvgCPU
 	acc.AvgRAMBytes += s.AvgRAMBytes
+	acc.TaskRSSBytes.Mean += s.TaskRSSBytes.Mean
 }
 
 // sweepCellResult is one persisted sweep row.
@@ -268,6 +275,8 @@ type sweepCellResult struct {
 	Failed      int      `json:"failed,omitempty"`
 	Total       int      `json:"total,omitempty"`
 	CPU         float64  `json:"cpu_percent,omitempty"`
+	RSSMeanMB   float64  `json:"rss_mean_mb,omitempty"`
+	RSSP95MB    float64  `json:"rss_p95_mb,omitempty"`
 	Saturated   bool     `json:"saturated,omitempty"`
 	Violations  []string `json:"violations,omitempty"`
 }
@@ -302,15 +311,23 @@ func cmdReport(args []string) error {
 		var cells []sweepCellResult
 		if err := readJSONFile(filepath.Join(sweepsDir, latest.Name()), &cells); err == nil {
 			b.WriteString("## Sweep: " + strings.TrimSuffix(latest.Name(), ".json") + "\n\n")
-			b.WriteString("| scenario | concurrency | rep | p95 (s) | p99 (s) | failed | cpu% | saturated |\n")
-			b.WriteString("|---|---|---|---|---|---|---|---|\n")
+			b.WriteString("| scenario | concurrency | rep | p95 (s) | p99 (s) | failed | cpu% | rss mean (MB) | rss p95 (MB) | saturated |\n")
+			b.WriteString("|---|---|---|---|---|---|---|---|---|---|\n")
 			for _, c := range cells {
 				sat := ""
 				if c.Saturated {
 					sat = "**" + strings.Join(c.Violations, ",") + "**"
 				}
-				b.WriteString(fmt.Sprintf("| %s | %d | %d | %.4f | %.4f | %d | %.1f | %s |\n",
-					c.Scenario, c.Concurrency, c.Rep, c.P95, c.P99, c.Failed, c.CPU, sat))
+				// Older sweep files predate the RSS fields; render them as
+				// "n/a" instead of misleading zeros.
+				rssMean, rssP95 := "n/a", "n/a"
+				if c.RSSMeanMB > 0 {
+					rssMean = fmt.Sprintf("%.0f", c.RSSMeanMB)
+					rssP95 = fmt.Sprintf("%.0f", c.RSSP95MB)
+				}
+				b.WriteString(fmt.Sprintf("| %s | %d | %d | %.4f | %.4f | %d | %.1f | %s | %s | %s |\n",
+					c.Scenario, c.Concurrency, c.Rep, c.P95, c.P99, c.Failed, c.CPU,
+					rssMean, rssP95, sat))
 			}
 			b.WriteString("\n")
 		}

@@ -189,7 +189,7 @@ cd target/frontend && npm install --include=dev && npm run build
 | Command | Output | What it gives you |
 |---|---|---|
 | `bench summarize` | console table | one row per run: throughput, completed, failed, p95 |
-| `bench report` | `results/report.md` | markdown with the latest sweep table (per-cell p95/p99/failed/cpu/saturation) plus all runs |
+| `bench report` | `results/report.md` | markdown with the latest sweep table (per-cell p95/p99/failed/cpu/rss/saturation) plus all runs |
 | `bench status` | console | list of recorded run directories |
 | raw files | `results/raw/<run-id>/` | `metadata.json`, `summary.json`, `system_metrics.csv`, `process_metrics.csv`, `browser_metrics.csv`, `hybrid_metrics.csv`, `task_metrics.csv`, `task_rss_metrics.csv` |
 | sweep verdicts | `results/sweeps/<ts>.json` | per-cell saturation evaluation for later analysis |
