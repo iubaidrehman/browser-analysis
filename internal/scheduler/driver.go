@@ -127,6 +127,7 @@ func (d *Driver) runFixed(ctx context.Context, cfg RunConfig, n int, duration ti
 		go func(i int) {
 			defer wg.Done()
 			for {
+				// Check cancellation and the deadline before each iteration.
 				select {
 				case <-ctx.Done():
 					d.rec.TaskCancelled()
@@ -136,12 +137,17 @@ func (d *Driver) runFixed(ctx context.Context, cfg RunConfig, n int, duration ti
 				if time.Now().After(deadline) {
 					return
 				}
-				// Acquire a slot: block until a worker slot is free. A
-				// cancelled context releases the slot.
+				// Acquire a slot; cancellation releases us. The deadline is
+				// re-checked after acquiring so a stale token (held by a
+				// task that outlived the deadline) cannot stall us.
 				select {
 				case <-tokens:
 				case <-ctx.Done():
 					d.rec.TaskCancelled()
+					return
+				}
+				if time.Now().After(deadline) {
+					tokens <- struct{}{} // release the slot; window ended
 					return
 				}
 				// A fresh task per iteration: reusing the same Task across

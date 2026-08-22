@@ -17,9 +17,9 @@ workflow:
   name: complex
 
 timing:
-  warmup_seconds: 2
-  measurement_seconds: 10
-  cooldown_seconds: 2
+  warmup_seconds: 1
+  measurement_seconds: 5
+  cooldown_seconds: 1
 
 target:
   base_url: http://localhost:8080
